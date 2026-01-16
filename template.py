@@ -6,8 +6,10 @@
 {How to use the script}
 """
 
+import ctypes
 import json
 import logging
+# import os
 import pathlib
 import socket
 import sys
@@ -395,6 +397,8 @@ def main() -> None:
     This is where your main script logic goes
     """
 
+    Styles.preview_styles()
+
 
 def format_duration_long(duration_seconds: float) -> str:
     """
@@ -515,6 +519,14 @@ def load_config(file_path: pathlib.Path | str) -> dict:
     return data
 
 
+def enable_windows_ansi():
+    """Enables ANSI escape sequences in the Windows command prompt."""
+    kernel32 = ctypes.windll.kernel32
+    # ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+    # 7 is the standard handle for STDOUT
+    kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+
+
 def bootstrap():
     """
     Handles environment setup, configuration loading,
@@ -522,6 +534,8 @@ def bootstrap():
     """
     exit_code = 0
     try:
+        enable_windows_ansi()
+
         # Resolve paths and configuration
         script_path = pathlib.Path(__file__)
         script_name = script_path.stem
@@ -576,6 +590,7 @@ def bootstrap():
             handler.close()
             logger.removeHandler(handler)
 
+    # input("Press Enter to exit...")
     return exit_code
 
 
