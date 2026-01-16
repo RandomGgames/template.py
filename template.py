@@ -322,11 +322,7 @@ def is_in_tolerance(
 
     log_msg = f"{name} | {status} | Measured: {experimental_value} | Target: {target_value}±{target_tolerance} | Dev: {deviation} {symbol} {target_tolerance}"
 
-    if in_tolerance:
-        logger.info(log_msg)
-    else:
-        logger.warning(log_msg)
-
+    logger.info(log_msg)
     return in_tolerance
 
 
@@ -374,9 +370,15 @@ class Styles:
 
     @classmethod
     def preview_styles(cls):
-        """Preview all available styles"""
-        for each in [style for style in vars(cls) if not style.startswith("__")]:
-            print(f"{each}: {getattr(cls, each)}ABCabc#@!?0123{cls.RESET}")
+        """Preview all available styles, skipping methods and internal attributes."""
+        # Get all attributes that are strings and don't start with underscore
+        style_names = [
+            name for name in dir(cls)
+            if not name.startswith("_") and isinstance(getattr(cls, name), str)
+        ]
+
+        for name in sorted(style_names):
+            logger.debug(f"{name.ljust(15)}: {getattr(cls, name)}ABCabc#@!?0123{cls.RESET}")
 
 
 class ColorFormatter(logging.Formatter):
@@ -398,6 +400,10 @@ def main() -> None:
     """
 
     Styles.preview_styles()
+
+    is_in_tolerance(1.0, 1.0, 0.1, "Test")
+    is_in_tolerance(1.1, 1.0, 0.1, "Test")
+    is_in_tolerance(5, 1.0, 0.1, "Test")
 
 
 def format_duration_long(duration_seconds: float) -> str:
@@ -590,7 +596,7 @@ def bootstrap():
             handler.close()
             logger.removeHandler(handler)
 
-    # input("Press Enter to exit...")
+    input("Press Enter to exit...")
     return exit_code
 
 
