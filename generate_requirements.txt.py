@@ -77,6 +77,9 @@ def main():
 
     if len(non_std_modules) == 0:
         print("No non-standard modules detected.")
+        if os.path.exists("requirements.txt"):
+            os.remove("requirements.txt")
+            print(f"Deleted existing requirements file: {json.dumps('requirements.txt')}")
         return
 
     print(f"Detected non-standard modules: {json.dumps(list(non_std_modules))}")
