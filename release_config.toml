@@ -1,0 +1,10 @@
+name = "Script Name"
+version = "1.0.0"
+files = ["template.py", "template_config.toml", "requirements.txt"]
+
+[logging]
+console_logging_level = "DEBUG"                                                           # DEBUG, INFO, WARNING, ERROR
+file_logging_level = "DEBUG"                                                              # DEBUG, INFO, WARNING, ERROR
+log_message_format = "%(asctime)s.%(msecs)03d %(levelname)s [%(funcName)s] - %(message)s"
+logs_folder_name = "logs"
+max_log_files = 50
