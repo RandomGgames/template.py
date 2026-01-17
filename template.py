@@ -9,15 +9,19 @@
 import ctypes
 import json
 import logging
+import math
 # import os
 import pathlib
 import socket
 import sys
 import time
 # import traceback
+from collections.abc import Sequence
 from datetime import datetime
-from typing import NamedTuple
+from typing import NamedTuple, Union, Optional
 
+import numpy as np
+import sympy as sp
 import toml
 
 logger = logging.getLogger(__name__)
@@ -381,29 +385,280 @@ class Styles:
             logger.debug(f"{name.ljust(15)}: {getattr(cls, name)}ABCabc#@!?0123{cls.RESET}")
 
 
-class ColorFormatter(logging.Formatter):
-    """Adds colors to specific keywords for console output only."""
+class Unit:
+    """Lightweight unit descriptor with conversion support"""
 
-    def format(self, record):
-        message = super().format(record)
-        if "PASS" in message:
-            message = message.replace("PASS", f"{Styles.GREEN_BG}{Styles.BOLD}PASS{Styles.RESET}")
-        elif "FAIL" in message:
-            message = message.replace("FAIL", f"{Styles.RED_BG}{Styles.BOLD}FAIL{Styles.RESET}")
+    def __init__(self, name: str, dimension: str, factor_to_base: float = 1.0):
+        self.name = name
+        self.dimension = dimension
+        self.factor_to_base = factor_to_base  # scale to base unit (g, mm, s)
 
-        return message
+    def __str__(self):
+        return self.name if self.name else "1"
+
+    def __mul__(self, other):
+        if not isinstance(other, Unit):
+            return NotImplemented
+        if self.is_dimensionless():
+            return other
+        if other.is_dimensionless():
+            return self
+        return Unit(
+            f"{self.name}·{other.name}" if self.name and other.name else self.name or other.name,
+            f"{self.dimension}·{other.dimension}" if self.dimension and other.dimension else self.dimension or other.dimension,
+            self.factor_to_base * other.factor_to_base
+        )
+
+    def __truediv__(self, other):
+        if not isinstance(other, Unit):
+            return NotImplemented
+        if self.factor_to_base == other.factor_to_base and self.dimension == other.dimension:
+            return Unit.dimensionless()
+        if other.is_dimensionless():
+            return self
+        if self.is_dimensionless():
+            return Unit(f"1/{other.name}", f"1/{other.dimension}", 1 / other.factor_to_base)
+        return Unit(
+            f"{self.name}/{other.name}" if self.name and other.name else self.name or other.name,
+            f"{self.dimension}/{other.dimension}" if self.dimension and other.dimension else self.dimension or other.dimension,
+            self.factor_to_base / other.factor_to_base
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, Unit):
+            return False
+        return self.name == other.name and self.dimension == other.dimension
+
+    def is_dimensionless(self):
+        return self.name == "" or self.dimension == "dimensionless"
+
+    # ---------------- Unit constructors ----------------
+    @classmethod
+    def dimensionless(cls):
+        return cls("", "dimensionless", 1.0)
+
+    # Mass
+    @classmethod
+    def kilogram(cls):
+        return cls("kg", "mass", 1000.0)
+
+    @classmethod
+    def gram(cls):
+        return cls("g", "mass", 1.0)
+
+    @classmethod
+    def milligram(cls):
+        return cls("mg", "mass", 0.001)
+
+    # Length
+    @classmethod
+    def meter(cls):
+        return cls("m", "length", 1000.0)
+
+    @classmethod
+    def millimeter(cls):
+        return cls("mm", "length", 1.0)
+
+    @classmethod
+    def kilometer(cls):
+        return cls("km", "length", 1_000_000.0)
+
+    @classmethod
+    def centimeter(cls):
+        return cls("cm", "length", 10.0)
+
+    @classmethod
+    def inch(cls):
+        return cls("in", "length", 25.4)
+
+    @classmethod
+    def foot(cls):
+        return cls("ft", "length", 304.8)
+
+    @classmethod
+    def mile(cls):
+        return cls("mi", "length", 1_609_344.0)
+
+    # Time
+    @classmethod
+    def second(cls):
+        return cls("s", "time", 1.0)
+
+    @classmethod
+    def millisecond(cls):
+        return cls("ms", "time", 0.001)
+
+    # Temperature
+    @classmethod
+    def celsius(cls):
+        return cls("°C", "temperature", 1.0)
+
+    @classmethod
+    def fahrenheit(cls):
+        return cls("°F", "temperature", 1.0)
+
+    @classmethod
+    def kelvin(cls):
+        return cls("K", "temperature", 1.0)
+
+    # ---------------- Conversion ----------------
+    def convert_value_to(self, value: float, target_unit: "Unit", scale_only=False) -> float:
+        """Convert a numeric value from this unit to another unit."""
+        if self.dimension != target_unit.dimension:
+            raise ValueError(f"Cannot convert {self.dimension} to {target_unit.dimension}")
+
+        # Temperature special case
+        if self.dimension == "temperature":
+            # Convert self -> Kelvin
+            match self.name:
+                case "°C": val_in_base = value + 273.15
+                case "°F": val_in_base = (value - 32) * 5 / 9 + 273.15
+                case "K": val_in_base = value
+                case _: val_in_base = value
+
+            # Convert Kelvin -> target
+            match target_unit.name:
+                case "°C": result = val_in_base - 273.15
+                case "°F": result = (val_in_base - 273.15) * 9 / 5 + 32
+                case "K": result = val_in_base
+                case _: result = val_in_base
+
+            if scale_only:
+                # Only scale uncertainty linearly
+                if self.name == "°C" and target_unit.name == "°F":
+                    return value * 9 / 5
+                if self.name == "°F" and target_unit.name == "°C":
+                    return value * 5 / 9
+                return value
+            return result
+
+        # Linear conversion
+        return value * (self.factor_to_base / target_unit.factor_to_base)
 
 
-def main() -> None:
-    """
-    This is where your main script logic goes
-    """
+# ---------------- Measurement ----------------
+class Measurement:
+    """Number with uncertainty, units, and decimals."""
 
-    Styles.preview_styles()
+    def __init__(self, value: float, decimals=None, uncertainty: float = 0.0, units: Unit = Unit.dimensionless()):
+        if units is None:
+            units = Unit.dimensionless()
+        self.value = value
+        self.uncertainty = uncertainty
+        self.units = units
+        self.decimals = decimals
+        self._round()
 
-    is_in_tolerance(1.0, 1.0, 0.1, "Test")
-    is_in_tolerance(1.1, 1.0, 0.1, "Test")
-    is_in_tolerance(5, 1.0, 0.1, "Test")
+    def _round(self):
+        if self.decimals is not None:
+            self.value = round(self.value, self.decimals)
+            self.uncertainty = round(self.uncertainty, self.decimals)
+
+    # ---------------- Arithmetic ----------------
+    def _as_measurement(self, other) -> "Measurement":
+        if isinstance(other, Measurement):
+            return other
+        if isinstance(other, (int, float)):
+            return Measurement(float(other), decimals=None, uncertainty=0.0, units=self.units)
+        raise TypeError(f"Cannot convert {other} to Measurement")
+
+    def _decimals_for(self, other: "Measurement"):
+        if self.decimals is None and other.decimals is None:
+            return None
+        if self.decimals is None:
+            return other.decimals
+        if other.decimals is None:
+            return self.decimals
+        return min(self.decimals, other.decimals)
+
+    def __add__(self, other):
+        other = self._as_measurement(other)
+        if self.units != other.units and not other.units.is_dimensionless():
+            raise ValueError(f"Unit mismatch: {self.units} vs {other.units}")
+        value = self.value + other.value
+        uncertainty = math.sqrt(self.uncertainty**2 + other.uncertainty**2)
+        return Measurement(value, decimals=self._decimals_for(other), uncertainty=uncertainty, units=self.units)
+
+    __radd__ = __add__
+
+    def __sub__(self, other):
+        other = self._as_measurement(other)
+        if self.units != other.units and not other.units.is_dimensionless():
+            raise ValueError(f"Unit mismatch: {self.units} vs {other.units}")
+        value = self.value - other.value
+        uncertainty = math.sqrt(self.uncertainty**2 + other.uncertainty**2)
+        return Measurement(value, decimals=self._decimals_for(other), uncertainty=uncertainty, units=self.units)
+
+    def __rsub__(self, other):
+        return self._as_measurement(other) - self
+
+    def __mul__(self, other):
+        other = self._as_measurement(other)
+        value = self.value * other.value
+        rel_unc = math.sqrt(
+            (self.uncertainty / self.value if self.value != 0 else 0)**2 +
+            (other.uncertainty / other.value if other.value != 0 else 0)**2
+        )
+        uncertainty = abs(value) * rel_unc
+        units = self.units * other.units
+        return Measurement(value, decimals=self._decimals_for(other), uncertainty=uncertainty, units=units)
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, other):
+        other = self._as_measurement(other)
+        value = self.value / other.value
+        rel_unc = math.sqrt(
+            (self.uncertainty / self.value if self.value != 0 else 0)**2 +
+            (other.uncertainty / other.value if other.value != 0 else 0)**2
+        )
+        uncertainty = abs(value) * rel_unc
+        units = self.units / other.units
+        return Measurement(value, decimals=self._decimals_for(other), uncertainty=uncertainty, units=units)
+
+    def __rtruediv__(self, other):
+        return self._as_measurement(other) / self
+
+    def __pow__(self, exponent):
+        value = self.value ** exponent
+        rel_unc = abs(exponent) * (self.uncertainty / self.value if self.value != 0 else 0)
+        uncertainty = abs(value) * rel_unc
+        return Measurement(value, decimals=self.decimals, uncertainty=uncertainty, units=self.units)
+
+    # ---------------- Conversions ----------------
+    def convert_to(self, target_unit: Unit) -> "Measurement":
+        """Convert value and uncertainty using Unit class."""
+        new_value = self.units.convert_value_to(self.value, target_unit)
+        new_uncertainty = self.units.convert_value_to(self.uncertainty, target_unit, scale_only=True)
+        return Measurement(new_value, self.decimals, new_uncertainty, target_unit)
+
+    # ---------------- Representation ----------------
+    def __str__(self):
+        dec = self.decimals if self.decimals is not None else max(len(str(self.value).rsplit('.', 1)[-1]), 6)
+        val_str = f"{self.value:.{dec}f}"
+        unc_str = f" ± {self.uncertainty:.{dec}f}" if self.uncertainty != 0 else ""
+        return f"{val_str}{unc_str} {self.units}"
+
+
+# ---------------- PhysicsTools ----------------
+class PhysicsTools:
+    @staticmethod
+    def average(measurements: list[Measurement]) -> Measurement:
+        if not measurements:
+            raise ValueError("No measurements provided")
+
+        values = [m.value for m in measurements]
+        mean = sum(values) / len(values)
+        spread_var = sum((x - mean) ** 2 for x in values) / len(values)
+        uncertainty_var = sum(m.uncertainty**2 for m in measurements) / len(measurements)
+        total_unc = math.sqrt(spread_var + uncertainty_var)
+        decimals = min((m.decimals for m in measurements if m.decimals is not None), default=None)
+        units = measurements[0].units
+        return Measurement(mean, decimals=decimals, uncertainty=total_unc, units=units)
+
+
+def main():
+    """This is where your main script logic goes"""
 
 
 def format_duration_long(duration_seconds: float) -> str:
@@ -437,9 +692,7 @@ def format_duration_long(duration_seconds: float) -> str:
 
 
 def enforce_max_log_count(dir_path: pathlib.Path | str, max_count: int | None, script_name: str) -> None:
-    """
-    Keep only the N most recent logs for this script.
-    """
+    """Keep only the N most recent logs for this script."""
     if max_count is None or max_count <= 0:
         return
 
@@ -458,6 +711,19 @@ def enforce_max_log_count(dir_path: pathlib.Path | str, max_count: int | None, s
                 logger.debug(f"Deleted old log: {f.name}")
             except OSError as e:
                 logger.error(f"Failed to delete {f.name}: {e}")
+
+
+class ColorFormatter(logging.Formatter):
+    """Adds colors to specific keywords for console output only."""
+
+    def format(self, record):
+        message = super().format(record)
+        if "PASS" in message:
+            message = message.replace("PASS", f"{Styles.GREEN_BG}{Styles.BOLD}PASS{Styles.RESET}")
+        elif "FAIL" in message:
+            message = message.replace("FAIL", f"{Styles.RED_BG}{Styles.BOLD}FAIL{Styles.RESET}")
+
+        return message
 
 
 def setup_logging(
@@ -596,7 +862,7 @@ def bootstrap():
             handler.close()
             logger.removeHandler(handler)
 
-    input("Press Enter to exit...")
+    # input("Press Enter to exit...")
     return exit_code
 
 
