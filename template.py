@@ -767,11 +767,45 @@ def setup_logging(
     # Console Handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(console_logging_level)
+    # console_handler.setFormatter(formatter)
     console_handler.setFormatter(ColorFormatter(message_format, datefmt=date_format))
     logger_obj.addHandler(console_handler)
 
     if max_log_files is not None:
         enforce_max_log_count(dir_path, max_log_files, script_name)
+
+
+def validate_config(config: dict, required_keys: list[str], nested: bool = False) -> None:
+    """
+    Validate that all required keys exist in the config dictionary.
+
+    Args:
+        config (dict): Configuration dictionary to validate.
+        required_keys (Iterable[str]): Keys that must exist in the config.
+            For nested keys, use dot notation like "database.host".
+        nested (bool): If True, interpret keys with dot notation as nested dictionaries.
+
+    Raises:
+        KeyError: If a required key is missing.
+    """
+    missing_keys = []
+
+    for key in required_keys:
+        if nested and '.' in key:
+            parts = key.split('.')
+            current = config
+            for part in parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    missing_keys.append(key)
+                    break
+        else:
+            if key not in config:
+                missing_keys.append(key)
+
+    if missing_keys:
+        raise KeyError(f"Missing required config keys: {', '.join(missing_keys)}")
 
 
 def load_config(file_path: pathlib.Path | str) -> dict:
