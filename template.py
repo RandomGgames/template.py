@@ -14,6 +14,7 @@ import os
 import socket
 import sys
 import time
+import tomllib
 import traceback
 import zipfile
 from collections.abc import Sequence
@@ -23,18 +24,13 @@ from typing import NamedTuple, Union, Optional
 
 import numpy as np
 import sympy as sp
-import toml
 
 logger = logging.getLogger(__name__)
 
 __version__ = "0.0.0"  # Major.Minor.Patch
 
 
-# def zip_files(
-#     files: list[str | Path],
-#     zip_path: str | Path,
-#     compresslevel: int = 6,
-# ) -> None:
+# def zip_files(files: list[str | Path], zip_path: str | Path, compresslevel: int = 6) -> None:
 #     try:
 #         paths = [Path(p) for p in files]
 #         zip_path = Path(zip_path)
@@ -46,12 +42,12 @@ __version__ = "0.0.0"  # Major.Minor.Patch
 #             compresslevel=compresslevel,
 #         ) as zipf:
 #             for path in paths:
-#                 zipf.write(path, arcname=path.as_posix())
+#                 zipf.write(path, arcname=path.name)
 
 #         logger.info("Created release archive: %s", zip_path)
 
-#     except Exception:
-#         logger.exception("Failed to create zip archive")
+#     except Exception as e:
+#         logger.exception(f"Failed to create zip archive {json.dumps(str(zip_path))}")
 #         raise
 
 
@@ -121,22 +117,35 @@ __version__ = "0.0.0"  # Major.Minor.Patch
 #         logger.error(f"Failed to save cache to {json.dumps(str(path))}", e)
 #         raise
 
-
 def read_toml(file_path: Path | str) -> dict:
     """
     Reads a TOML file and returns its contents as a dictionary.
 
     Args:
-    file_path (Path | str): The file path of the TOML file to read.
+        file_path (Path | str): The file path of the TOML file to read.
 
     Returns:
-    dict: The contents of the TOML file as a dictionary.
+        dict: The contents of the TOML file as a dictionary.
+
+    Raises:
+        FileNotFoundError: If the TOML file does not exist.
+        OSError: If the file cannot be read.
+        tomllib.TOMLDecodeError (or toml.TomlDecodeError): If the file is invalid TOML.
     """
-    file_path = Path(file_path)
-    if not file_path.exists():
-        raise FileNotFoundError(f"File not found: {json.dumps(str(file_path))}")
-    data = toml.load(file_path)
-    return data
+    path = Path(file_path)
+
+    if not path.is_file():
+        raise FileNotFoundError(f"File not found: {json.dumps(str(path))}")
+
+    try:
+        # Read TOML as bytes
+        with path.open("rb") as f:
+            data = tomllib.load(f)  # Replace with 'toml.load(f)' if using the toml package
+        return data
+
+    except (OSError, tomllib.TOMLDecodeError):
+        logger.exception(f"Failed to read TOML file: {json.dumps(str(file_path))}")
+        raise
 
 
 # def read_text_file(file_path: Path | str) -> str:
@@ -887,7 +896,7 @@ def bootstrap():
         logs_folder.mkdir(parents=True, exist_ok=True)
 
         pc_name = socket.gethostname()
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = logs_folder / f"{timestamp}__{script_name}__{pc_name}.log"
 
         # Initialize logging
