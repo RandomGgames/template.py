@@ -5,15 +5,11 @@
 
 {How to use the script}
 """
-
-
 import ast
 import ctypes
-import importlib.util
 import json
 import logging
 import os
-import pathlib
 import socket
 import sys
 import time
@@ -25,52 +21,104 @@ import toml
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.0.0"  # Major.Minor.Patch
+__version__ = "1.0.0"  # Major.Minor.Patch
 
 
-def get_common_folder(file_paths):
-    return os.path.commonpath(file_paths)
+def zip_files(files: list[str | Path], zip_path: str | Path, compresslevel: int = 6) -> None:
+    try:
+        paths = [Path(p) for p in files]
+        zip_path = Path(zip_path)
 
+        with zipfile.ZipFile(
+            zip_path,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=compresslevel,
+        ) as zipf:
+            for path in paths:
+                zipf.write(path, arcname=path.name)
 
-def zip_files(file_paths, zip_name):
-    with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for file in file_paths:
-            arcname = os.path.relpath(file, os.path.commonpath(file_paths))
-            zipf.write(file, arcname)
-    print(f"Created release: {zip_name}")
+        logger.info("Created release archive: %s", zip_path)
+
+    except Exception as e:
+        logger.exception(f"Failed to create zip archive {json.dumps(str(zip_path))}")
+        raise
 
 
 def find_third_party_imports(file_path: str | Path) -> set[str]:
-    file_path = Path(file_path)
-    tree = ast.parse(file_path.read_text())
+    """
+    Parse a Python source file and return the names of imported third-party
+    (non-stdlib) top-level modules.
 
-    stdlib = sys.stdlib_module_names
-    third_party = set()
+    Args:
+        file_path: Path to a Python source file.
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                name = alias.name.split('.')[0]
+    Returns:
+        A set of top-level module names that are not part of the standard library.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        SyntaxError: If the Python file cannot be parsed.
+        OSError: If the file cannot be read.
+    """
+    try:
+        path = Path(file_path)
+
+        if not path.is_file():
+            raise FileNotFoundError(f"File not found: {path}")
+
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        stdlib = sys.stdlib_module_names
+        third_party: set[str] = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.name.partition(".")[0]
+                    if name not in stdlib:
+                        third_party.add(name)
+
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                name = node.module.partition(".")[0]
                 if name not in stdlib:
                     third_party.add(name)
 
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                name = node.module.split('.')[0]
-                if name not in stdlib:
-                    third_party.add(name)
+        return third_party
 
-    return third_party
+    except Exception as e:
+        logger.exception(f"Failed to analyze imports in {json.dumps(str(file_path))}")
+        raise
 
 
-def write_requirements(non_std_modules):
-    if non_std_modules:
-        with open("requirements.txt", "w", encoding="utf-8") as f:
+def write_requirements(non_std_modules: set[str], output_path: str | Path = "requirements.txt") -> None:
+    """
+    Write a requirements.txt file containing the given set of third-party modules.
+
+    Args:
+        non_std_modules: Set of third-party module names.
+        output_path: Path to the requirements file to generate.
+
+    Raises:
+        OSError: If the file cannot be written.
+    """
+    try:
+        if not non_std_modules:
+            logger.info(f"No non-standard modules detected; {json.dumps(str(output_path))} not generated")
+            return
+
+        path = Path(output_path)
+
+        with path.open("w", encoding="utf-8") as f:
             for module in sorted(non_std_modules):
                 f.write(f"{module}\n")
-        print("Generated requirements.txt")
-    else:
-        print("No non-standard modules detected; requirements.txt not generated.")
+
+        logger.info(f"Generated requirements file: {json.dumps(str(path))}")
+
+    except Exception as e:
+        logger.exception(f"Failed to write requirements file to {json.dumps(str(output_path))}")
+        raise
 
 
 def main(config):
@@ -86,7 +134,7 @@ def main(config):
 
     # Ensure all files exist
     for file in files:
-        if not os.path.isfile(file):
+        if not Path(file).is_file():
             print(f"Error: File not found: {file}")
             sys.exit(1)
 
@@ -138,17 +186,17 @@ def validate_config(config: dict, required_keys: list[str], nested: bool = False
         raise KeyError(f"Missing required config keys: {', '.join(missing_keys)}")
 
 
-def read_toml(file_path: pathlib.Path | str) -> dict:
+def read_toml(file_path: Path | str) -> dict:
     """
     Reads a TOML file and returns its contents as a dictionary.
 
     Args:
-    file_path (pathlib.Path | str): The file path of the TOML file to read.
+    file_path (Path | str): The file path of the TOML file to read.
 
     Returns:
     dict: The contents of the TOML file as a dictionary.
     """
-    file_path = pathlib.Path(file_path)
+    file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {json.dumps(str(file_path))}")
     data = toml.load(file_path)
@@ -185,12 +233,12 @@ def format_duration_long(duration_seconds: float) -> str:
     return "".join(parts)
 
 
-def enforce_max_log_count(dir_path: pathlib.Path | str, max_count: int | None, script_name: str) -> None:
+def enforce_max_log_count(dir_path: Path | str, max_count: int | None, script_name: str) -> None:
     """Keep only the N most recent logs for this script."""
     if max_count is None or max_count <= 0:
         return
 
-    dir_path = pathlib.Path(dir_path)
+    dir_path = Path(dir_path)
 
     # Get all logs for this script, sorted by name (which is our timestamp)
     # Newest will be at the end of the list
@@ -209,7 +257,7 @@ def enforce_max_log_count(dir_path: pathlib.Path | str, max_count: int | None, s
 
 def setup_logging(
         logger_obj: logging.Logger,
-        file_path: pathlib.Path | str,
+        file_path: Path | str,
         script_name: str,
         max_log_files: int | None = None,
         console_logging_level: int = logging.DEBUG,
@@ -222,7 +270,7 @@ def setup_logging(
 
     Args:
     logger_obj (logging.Logger): The logger object to configure.
-    file_path (pathlib.Path | str): The file path of the log file to write.
+    file_path (Path | str): The file path of the log file to write.
     max_log_files (int | None, optional): The maximum total size for all logs in the folder. Defaults to None.
     console_logging_level (int, optional): The logging level for console output. Defaults to logging.DEBUG.
     file_logging_level (int, optional): The logging level for file output. Defaults to logging.DEBUG.
@@ -230,7 +278,7 @@ def setup_logging(
     date_format (str, optional): The format string for log timestamps. Defaults to "%Y-%m-%d %H:%M:%S".
     """
 
-    file_path = pathlib.Path(file_path)
+    file_path = Path(file_path)
     dir_path = file_path.parent
     dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -255,17 +303,17 @@ def setup_logging(
         enforce_max_log_count(dir_path, max_log_files, script_name)
 
 
-def load_config(file_path: pathlib.Path | str) -> dict:
+def load_config(file_path: Path | str) -> dict:
     """
     Load configuration from a TOML file.
 
     Args:
-    file_path (pathlib.Path | str): The file path of the TOML file to read.
+    file_path (Path | str): The file path of the TOML file to read.
 
     Returns:
     dict: The contents of the TOML file as a dictionary.
     """
-    file_path = pathlib.Path(file_path)
+    file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {json.dumps(str(file_path))}")
     data = read_toml(file_path)
@@ -287,10 +335,11 @@ def bootstrap():
     """
     exit_code = 0
     try:
-        enable_windows_ansi()
+        if os.name == "nt":
+            enable_windows_ansi()
 
         # Resolve paths and configuration
-        script_path = pathlib.Path(__file__)
+        script_path = Path(__file__)
         script_name = script_path.stem
         config_path = script_path.with_name(f"{script_name}_config.toml")
 
@@ -304,7 +353,7 @@ def bootstrap():
         log_message_format = logger_config.get("log_message_format", "%(asctime)s.%(msecs)03d %(levelname)s [%(funcName)s] - %(message)s")
 
         # Setup directories and filenames
-        logs_folder = pathlib.Path(logger_config.get("logs_folder_name", "logs"))
+        logs_folder = Path(logger_config.get("logs_folder_name", "logs"))
         logs_folder.mkdir(parents=True, exist_ok=True)
 
         pc_name = socket.gethostname()
