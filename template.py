@@ -185,6 +185,7 @@ def bootstrap():
         config_path = script_path.with_name(f"{script_name}_config.toml")
 
         # Load settings
+        global config
         config = load_config(config_path)
         logger_config = config.get("logging", {})
 
@@ -212,6 +213,10 @@ def bootstrap():
             message_format=log_message_format
         )
 
+        exit_behavior_config = config.get("exit_behavior", {})
+        pause_before_exit = exit_behavior_config.get("always_pause", False)
+        pause_before_exit_on_error = exit_behavior_config.get("pause_on_error", True)
+
         start_ns = time.perf_counter_ns()
         logger.info(f"Script: {json.dumps(script_name)} | Version: {__version__} | Host: {json.dumps(pc_name)}")
 
@@ -233,7 +238,9 @@ def bootstrap():
             handler.close()
             logger.removeHandler(handler)
 
-    # input("Press Enter to exit...")
+    if pause_before_exit or (pause_before_exit_on_error and exit_code != 0):
+        input("Press Enter to exit...")
+
     return exit_code
 
 
