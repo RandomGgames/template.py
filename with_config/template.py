@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 __version__ = "0.0.0"  # Major.Minor.Patch
 
-CONFIG = None
+CONFIG = {}
 
 
 def main():
@@ -152,29 +152,19 @@ def bootstrap():
     """
     exit_code = 0
     try:
-        # Resolve paths and configuration
         script_path = Path(__file__)
         script_name = script_path.stem
-        config_path = script_path.with_name(f"{script_name}_config.toml")
+        pc_name = socket.gethostname()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Load settings
+        config_path = script_path.with_name(f"{script_name}_config.toml")
         CONFIG = load_config(config_path)
         logger_config = CONFIG.get("logging", {})
-
-        # Parse log levels and formats
         console_log_level = getattr(logging, logger_config.get("console_logging_level", "INFO").upper(), logging.INFO)
         file_log_level = getattr(logging, logger_config.get("file_logging_level", "INFO").upper(), logging.INFO)
         log_message_format = logger_config.get("log_message_format", "%(asctime)s.%(msecs)03d %(levelname)s [%(funcName)s] - %(message)s")
-
-        # Setup directories and filenames
         logs_folder = Path(logger_config.get("logs_folder_name", "logs"))
-        logs_folder.mkdir(parents=True, exist_ok=True)
-
-        pc_name = socket.gethostname()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = logs_folder / f"{timestamp}__{script_name}__{pc_name}.log"
-
-        # Initialize logging
         setup_logging(
             logger_obj=logger,
             file_path=log_path,
