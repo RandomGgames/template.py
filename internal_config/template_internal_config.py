@@ -11,12 +11,25 @@ import logging
 import send2trash
 import socket
 import sys
+import tomllib
 from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 __version__ = "0.0.0"  # Major.Minor.Patch
+
+CONFIG = {
+    "logging": {
+        "console_logging_level": "DEBUG",
+        "file_logging_level": "DEBUG",
+        "max_log_files": 50,
+    },
+    "exit_behavior": {
+        "always_pause": False,
+        "pause_on_error": True,
+    }
+}
 
 
 def main():
@@ -94,6 +107,54 @@ def setup_logging(
         enforce_max_log_count(dir_path, max_log_files, script_name)
 
 
+def read_toml(file_path: Path | str) -> dict:
+    """
+    Reads a TOML file and returns its contents as a dictionary.
+
+    Args:
+        file_path (Path | str): The file path of the TOML file to read.
+
+    Returns:
+        dict: The contents of the TOML file as a dictionary.
+
+    Raises:
+        FileNotFoundError: If the TOML file does not exist.
+        OSError: If the file cannot be read.
+        tomllib.TOMLDecodeError (or toml.TomlDecodeError): If the file is invalid TOML.
+    """
+    path = Path(file_path)
+
+    if not path.is_file():
+        raise FileNotFoundError(f"File not found: {json.dumps(str(path))}")
+
+    try:
+        # Read TOML as bytes
+        with path.open("rb") as f:
+            data = tomllib.load(f)  # Replace with 'toml.load(f)' if using the toml package
+        return data
+
+    except (OSError, tomllib.TOMLDecodeError):
+        logger.exception(f"Failed to read TOML file: {json.dumps(str(file_path))}")
+        raise
+
+
+def load_config(file_path: Path | str) -> dict:
+    """
+    Load configuration from a TOML file.
+
+    Args:
+    file_path (Path | str): The file path of the TOML file to read.
+
+    Returns:
+    dict: The contents of the TOML file as a dictionary.
+    """
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {json.dumps(str(file_path))}")
+    data = read_toml(file_path)
+    return data
+
+
 def bootstrap():
     """
     Handles environment setup, configuration loading,
@@ -101,22 +162,30 @@ def bootstrap():
     """
     exit_code = 0
     try:
-        pause_before_exit = False
-        pause_before_exit_on_error = True
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        pc_name = socket.gethostname()
         script_path = Path(__file__)
         script_name = script_path.stem
-        logs_folder = Path("logs")
-        log_path = logs_folder / f"{timestamp}__{script_name}__{pc_name}.log"
+        pc_name = socket.gethostname()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        logger_config = CONFIG.get("logging", {})
+        console_log_level = getattr(logging, logger_config.get("console_logging_level", "INFO").upper(), logging.INFO)
+        file_log_level = getattr(logging, logger_config.get("file_logging_level", "INFO").upper(), logging.INFO)
+        log_message_format = logger_config.get("log_message_format", "%(asctime)s.%(msecs)03d %(levelname)s [%(funcName)s] - %(message)s")
+        logs_folder = Path(logger_config.get("logs_folder_name", "logs"))
+        log_path = logs_folder / f"{timestamp}__{script_name}__{pc_name}.log"
         setup_logging(
             logger_obj=logger,
             file_path=log_path,
             script_name=script_name,
-            max_log_files=50
+            max_log_files=logger_config.get("max_log_files"),
+            console_logging_level=console_log_level,
+            file_logging_level=file_log_level,
+            message_format=log_message_format
         )
+
+        exit_behavior_config = CONFIG.get("exit_behavior", {})
+        pause_before_exit = exit_behavior_config.get("always_pause", False)
+        pause_before_exit_on_error = exit_behavior_config.get("pause_on_error", True)
 
         logger.info(f"Script: {json.dumps(script_name)} | Version: {__version__} | Host: {json.dumps(pc_name)}")
         main()
