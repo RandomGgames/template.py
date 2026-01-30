@@ -8,9 +8,9 @@
 
 import json
 import logging
+import send2trash
 import socket
 import sys
-import time
 import tomllib
 from datetime import datetime
 from pathlib import Path
@@ -19,36 +19,7 @@ logger = logging.getLogger(__name__)
 
 __version__ = "0.0.0"  # Major.Minor.Patch
 
-
-def read_toml(file_path: Path | str) -> dict:
-    """
-    Reads a TOML file and returns its contents as a dictionary.
-
-    Args:
-        file_path (Path | str): The file path of the TOML file to read.
-
-    Returns:
-        dict: The contents of the TOML file as a dictionary.
-
-    Raises:
-        FileNotFoundError: If the TOML file does not exist.
-        OSError: If the file cannot be read.
-        tomllib.TOMLDecodeError (or toml.TomlDecodeError): If the file is invalid TOML.
-    """
-    path = Path(file_path)
-
-    if not path.is_file():
-        raise FileNotFoundError(f"File not found: {json.dumps(str(path))}")
-
-    try:
-        # Read TOML as bytes
-        with path.open("rb") as f:
-            data = tomllib.load(f)  # Replace with 'toml.load(f)' if using the toml package
-        return data
-
-    except (OSError, tomllib.TOMLDecodeError):
-        logger.exception(f"Failed to read TOML file: {json.dumps(str(file_path))}")
-        raise
+CONFIG = None
 
 
 def main():
@@ -56,22 +27,23 @@ def main():
 
 
 def enforce_max_log_count(dir_path: Path | str, max_count: int | None, script_name: str) -> None:
-    """Keep only the N most recent logs for this script."""
+    """
+    Keep only the N most recent logs for this script.
+
+    Args:
+        dir_path (Path | str): The directory path to the log files.
+        max_count (int | None): The maximum number of log files to keep. None for no limit.
+        script_name (str): The name of the script to filter logs by.
+    """
     if max_count is None or max_count <= 0:
         return
-
     dir_path = Path(dir_path)
-
-    # Get all logs for this script, sorted by name (which is our timestamp)
-    # Newest will be at the end of the list
-    files = sorted([f for f in dir_path.glob(f"*{script_name}*.log") if f.is_file()])
-
-    # If we have more than the limit, calculate how many to delete
+    files = sorted([f for f in dir_path.glob(f"*{script_name}*.log") if f.is_file()])  # Newest will be at the end of the list
     if len(files) > max_count:
         to_delete = files[:-max_count]  # Everything except the last N files
         for f in to_delete:
             try:
-                f.unlink()
+                send2trash.send2trash(f)
                 logger.debug(f"Deleted old log: {f.name}")
             except OSError as e:
                 logger.error(f"Failed to delete {f.name}: {e}")
@@ -125,6 +97,37 @@ def setup_logging(
         enforce_max_log_count(dir_path, max_log_files, script_name)
 
 
+def read_toml(file_path: Path | str) -> dict:
+    """
+    Reads a TOML file and returns its contents as a dictionary.
+
+    Args:
+        file_path (Path | str): The file path of the TOML file to read.
+
+    Returns:
+        dict: The contents of the TOML file as a dictionary.
+
+    Raises:
+        FileNotFoundError: If the TOML file does not exist.
+        OSError: If the file cannot be read.
+        tomllib.TOMLDecodeError (or toml.TomlDecodeError): If the file is invalid TOML.
+    """
+    path = Path(file_path)
+
+    if not path.is_file():
+        raise FileNotFoundError(f"File not found: {json.dumps(str(path))}")
+
+    try:
+        # Read TOML as bytes
+        with path.open("rb") as f:
+            data = tomllib.load(f)  # Replace with 'toml.load(f)' if using the toml package
+        return data
+
+    except (OSError, tomllib.TOMLDecodeError):
+        logger.exception(f"Failed to read TOML file: {json.dumps(str(file_path))}")
+        raise
+
+
 def load_config(file_path: Path | str) -> dict:
     """
     Load configuration from a TOML file.
@@ -155,9 +158,8 @@ def bootstrap():
         config_path = script_path.with_name(f"{script_name}_config.toml")
 
         # Load settings
-        global config
-        config = load_config(config_path)
-        logger_config = config.get("logging", {})
+        CONFIG = load_config(config_path)
+        logger_config = CONFIG.get("logging", {})
 
         # Parse log levels and formats
         console_log_level = getattr(logging, logger_config.get("console_logging_level", "INFO").upper(), logging.INFO)
@@ -183,7 +185,7 @@ def bootstrap():
             message_format=log_message_format
         )
 
-        exit_behavior_config = config.get("exit_behavior", {})
+        exit_behavior_config = CONFIG.get("exit_behavior", {})
         pause_before_exit = exit_behavior_config.get("always_pause", False)
         pause_before_exit_on_error = exit_behavior_config.get("pause_on_error", True)
 
