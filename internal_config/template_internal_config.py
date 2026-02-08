@@ -107,54 +107,6 @@ def setup_logging(
         enforce_max_log_count(dir_path, max_log_files, script_name)
 
 
-def read_toml(file_path: Path | str) -> dict:
-    """
-    Reads a TOML file and returns its contents as a dictionary.
-
-    Args:
-        file_path (Path | str): The file path of the TOML file to read.
-
-    Returns:
-        dict: The contents of the TOML file as a dictionary.
-
-    Raises:
-        FileNotFoundError: If the TOML file does not exist.
-        OSError: If the file cannot be read.
-        tomllib.TOMLDecodeError (or toml.TomlDecodeError): If the file is invalid TOML.
-    """
-    path = Path(file_path)
-
-    if not path.is_file():
-        raise FileNotFoundError(f"File not found: {json.dumps(str(path))}")
-
-    try:
-        # Read TOML as bytes
-        with path.open("rb") as f:
-            data = tomllib.load(f)  # Replace with 'toml.load(f)' if using the toml package
-        return data
-
-    except (OSError, tomllib.TOMLDecodeError):
-        logger.exception(f"Failed to read TOML file: {json.dumps(str(file_path))}")
-        raise
-
-
-def load_config(file_path: Path | str) -> dict:
-    """
-    Load configuration from a TOML file.
-
-    Args:
-    file_path (Path | str): The file path of the TOML file to read.
-
-    Returns:
-    dict: The contents of the TOML file as a dictionary.
-    """
-    file_path = Path(file_path)
-    if not file_path.exists():
-        raise FileNotFoundError(f"File not found: {json.dumps(str(file_path))}")
-    data = read_toml(file_path)
-    return data
-
-
 def bootstrap():
     """
     Handles environment setup, configuration loading,
