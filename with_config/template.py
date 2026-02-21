@@ -142,6 +142,8 @@ def load_config(file_path: Path | str) -> dict:
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {json.dumps(str(file_path))}")
     data = read_toml(file_path)
+    global CONFIG
+    CONFIG = data
     return data
 
 
@@ -158,7 +160,7 @@ def bootstrap():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         config_path = script_path.with_name(f"{script_name}_config.toml")
-        CONFIG = load_config(config_path)
+        load_config(config_path)
         logger_config = CONFIG.get("logging", {})
         console_log_level = getattr(logging, logger_config.get("console_logging_level", "INFO").upper(), logging.INFO)
         file_log_level = getattr(logging, logger_config.get("file_logging_level", "INFO").upper(), logging.INFO)

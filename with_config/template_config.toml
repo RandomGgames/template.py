@@ -1,6 +1,6 @@
 [exit_behavior]
-always_pause = false
 pause_on_error = true
+always_pause = false
 
 [logging]
 console_logging_level = "DEBUG"                                                           # DEBUG, INFO, WARNING, ERROR
