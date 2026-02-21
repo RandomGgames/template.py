@@ -11,7 +11,6 @@ import logging
 import send2trash
 import socket
 import sys
-import tomllib
 from datetime import datetime
 from pathlib import Path
 
@@ -20,15 +19,15 @@ logger = logging.getLogger(__name__)
 __version__ = "0.0.0"  # Major.Minor.Patch
 
 CONFIG = {
+    "exit_behavior": {
+        "pause_on_error": True,
+        "always_pause": False,
+    },
     "logging": {
         "console_logging_level": "DEBUG",
         "file_logging_level": "DEBUG",
         "max_log_files": 50,
     },
-    "exit_behavior": {
-        "always_pause": False,
-        "pause_on_error": True,
-    }
 }
 
 
