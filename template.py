@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
 __version__ = "0.0.0"  # Major.Minor.Patch
 
 
