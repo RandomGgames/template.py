@@ -14,6 +14,7 @@ import sys
 import re
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -174,20 +175,38 @@ def enforce_max_log_count(dir_path: Path | str, max_count: int | None, script_na
 
 def setup_logging(logger_obj: logging.Logger, config: LoggingConfig) -> Path:
     """Set up file and console logging based on AppConfig."""
-    log_path = config.log_file_path  # use the property
+    log_path = config.log_file_path
 
     logger_obj.handlers.clear()
     logger_obj.setLevel(getattr(logging, config.file_logging_level.upper(), logging.INFO))
-    formatter = logging.Formatter(config.log_message_format, datefmt="%Y-%m-%d %H:%M:%S")
 
-    # File handler
-    file_mode = "a" if config.mode == "per_day" else "w"  # append for per_day
-    file_handler = logging.FileHandler(log_path, mode=file_mode, encoding="utf-8")
+    formatter = logging.Formatter(
+        config.log_message_format,
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    if config.mode == "per_day":
+        # Automatic midnight rotation
+        file_handler = TimedRotatingFileHandler(
+            log_path,
+            when="midnight",
+            interval=1,
+            backupCount=config.max_files if config.max_files else 0,
+            encoding="utf-8",
+        )
+    else:
+        # per_run or single_file
+        file_mode = "w" if config.mode == "per_run" else "a"
+        file_handler = logging.FileHandler(
+            log_path,
+            mode=file_mode,
+            encoding="utf-8",
+        )
+
     file_handler.setLevel(getattr(logging, config.file_logging_level.upper(), logging.INFO))
     file_handler.setFormatter(formatter)
     logger_obj.addHandler(file_handler)
 
-    # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(getattr(logging, config.console_logging_level.upper(), logging.INFO))
     console_handler.setFormatter(formatter)
