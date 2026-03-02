@@ -80,25 +80,25 @@ class ExitBehaviorConfig:
 
 
 @dataclass
-class AppConfig:
-    script: ScriptConfig = field(default_factory=ScriptConfig)
+class Config:
     generate_config_if_missing: bool = False
+    script: ScriptConfig = field(default_factory=ScriptConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     exit_behavior: ExitBehaviorConfig = field(default_factory=ExitBehaviorConfig)
 
 
-def main(config: AppConfig):
+def main(Config: Config):
     logger.debug("Code goes here")
 
 
-def save_default_config(file_path: Path, config: AppConfig):
+def save_default_config(file_path: Path, config: Config):
     """Save JSON config based on dataclass defaults."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with file_path.open("w", encoding="utf-8") as f:
         json.dump(asdict(config), f, indent=4)
 
 
-def load_config(file_path: Path, generate_if_missing: bool = True) -> AppConfig:
+def load_config(file_path: Path, generate_if_missing: bool = True) -> Config:
     """
     Load configuration from JSON file.
     If missing and generate_if_missing=True, auto-generate.
@@ -112,7 +112,7 @@ def load_config(file_path: Path, generate_if_missing: bool = True) -> AppConfig:
         return dataclass_type(**merged)
 
     if not file_path.exists():
-        config = AppConfig()
+        config = Config()
         if generate_if_missing:
             save_default_config(file_path, config)
         return config
@@ -127,7 +127,7 @@ def load_config(file_path: Path, generate_if_missing: bool = True) -> AppConfig:
     # ScriptConfig is currently empty; merge if fields are added later
     script_cfg = ScriptConfig()
 
-    config = AppConfig(
+    config = Config(
         logging=logging_cfg,
         exit_behavior=exit_cfg,
         script=script_cfg,
@@ -220,7 +220,7 @@ def bootstrap():
     try:
         script_path = Path(__file__)
         config_path = script_path.with_name(f"{script_path.stem}_config.json")
-        config = load_config(config_path, generate_if_missing=AppConfig.generate_config_if_missing)
+        config = load_config(config_path, generate_if_missing=Config.generate_config_if_missing)
 
         setup_logging(logger, config.logging)  # just pass the logging config
 
