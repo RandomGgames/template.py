@@ -8,10 +8,11 @@
 
 import json
 import logging
+import platform
+import re
 import send2trash
 import socket
 import sys
-import re
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
@@ -224,10 +225,28 @@ def bootstrap():
 
         setup_logging(logger, config.logging)  # just pass the logging config
 
-        logger.info(f"Script: {script_path.stem}")
-        logger.info(f"Version: {__version__}")
-        logger.info(f"Host: {socket.gethostname()}")
-        logger.info(f"AppConfig: {config}")
+        # Pre-main system/environment logging
+        logger.info("Script: %s", json.dumps(script_path.stem))
+        logger.info("Version: %s", __version__)
+        if hasattr(config.logging, "SN"):
+            logger.info("SN: %s", json.dumps(config.logging.SN))
+        logger.info("Host: %s", json.dumps(socket.gethostname()))
+        logger.info("Current Working Directory: %s", json.dumps(Path.cwd().as_posix()))
+        logger.info("Platform: %s", json.dumps(platform.system()))
+        logger.info("Platform Release: %s", platform.release())
+        logger.info("Platform Version: %s", platform.version())
+        logger.info("Architecture: %s", json.dumps(platform.machine()))
+        logger.info("Python Version: %s", sys.version.split()[0])
+        logger.info("Python Executable: %s", json.dumps(Path(sys.executable).as_posix()))
+        tz = datetime.now().astimezone().tzinfo
+        logger.info("Timezone: %s", tz)
+        logger.info("AppConfig: %s", config)
+        for name, module in sys.modules.items():
+            if module is None or name == "__main__":
+                continue
+            version = getattr(module, "__version__", None)
+            if version is not None:
+                logger.info("Module: %s v%s", name, version)
 
         main(config)
 
