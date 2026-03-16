@@ -32,13 +32,19 @@ class ScriptConfig:
 class LoggingConfig:
     mode: str = "per_run"  # single_file | per_run | per_day
     # SN: str = field(default_factory=lambda: input("Please input the SN: "))
-    logs_folder_name: str = "logs"
+    logs_folder_name: Path = Path(r"Logs")
     console_logging_level: str = "DEBUG"
     file_logging_level: str = "DEBUG"
     log_message_format: str = "%(asctime)s.%(msecs)03d %(levelname)s [%(funcName)s] - %(message)s"
     max_files: int | None = 10
 
     def __post_init__(self):
+        folder = Path(self.logs_folder_name)
+        if not folder.is_absolute():
+            script_dir = Path(__file__).resolve().parent
+            folder = script_dir / folder
+        self.logs_folder_name = folder
+
         if hasattr(self, "SN"):
             sn = (self.SN or "").strip().replace(" ", "_").upper()
             sn = re.sub(r'[<>:"/\\|?*]', "", sn)
