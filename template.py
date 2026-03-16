@@ -235,7 +235,7 @@ def bootstrap():
         setup_logging(logger, config.logging)  # just pass the logging config
 
         # Pre-main system/environment logging
-        logger.debug("Script: %s", json.dumps(script_path.stem))
+        logger.debug("Script: %s", json.dumps(script_path.name))
         logger.debug("Version: %s", __version__)
         if hasattr(config.logging, "SN"):
             logger.debug("SN: %s", json.dumps(config.logging.SN))
