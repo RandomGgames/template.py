@@ -70,11 +70,13 @@ class LoggingConfig:
 
         # Filename depends on mode
         if self.mode == "single_file":
-            log_file_name = f"{script_name}__{pc_name}.log"
+            log_file_name = f"latest_{script_name}__{pc_name}.log"
         elif self.mode == "per_day":
             day_stamp = datetime.now().strftime("%Y%m%d")
             log_file_name = f"{day_stamp}__{script_name}__{pc_name}.log"
-        else:  # per_run
+        elif self.mode == "per_run":
+            log_file_name = f"{timestamp}__{script_name}__{pc_name}.log"
+        else:  # Unknown
             log_file_name = f"{timestamp}__{script_name}__{pc_name}.log"
 
         return log_folder / log_file_name
