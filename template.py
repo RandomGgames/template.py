@@ -228,31 +228,31 @@ def bootstrap():
         script_path = Path(__file__)
         config_path = script_path.with_name(f"{script_path.stem}_config.json")
         config = load_config(config_path, generate_if_missing=Config.generate_config_if_missing)
+        tz = datetime.now().astimezone().tzinfo
 
         setup_logging(logger, config.logging)  # just pass the logging config
 
         # Pre-main system/environment logging
-        logger.info("Script: %s", json.dumps(script_path.stem))
-        logger.info("Version: %s", __version__)
+        logger.debug("Script: %s", json.dumps(script_path.stem))
+        logger.debug("Version: %s", __version__)
         if hasattr(config.logging, "SN"):
-            logger.info("SN: %s", json.dumps(config.logging.SN))
-        logger.info("Host: %s", json.dumps(socket.gethostname()))
-        logger.info("Current Working Directory: %s", json.dumps(Path.cwd().as_posix()))
-        logger.info("Platform: %s", json.dumps(platform.system()))
-        logger.info("Platform Release: %s", platform.release())
-        logger.info("Platform Version: %s", platform.version())
-        logger.info("Architecture: %s", json.dumps(platform.machine()))
-        logger.info("Python Version: %s", sys.version.split()[0])
-        logger.info("Python Executable: %s", json.dumps(Path(sys.executable).as_posix()))
-        tz = datetime.now().astimezone().tzinfo
-        logger.info("Timezone: %s", tz)
-        logger.info("AppConfig: %s", config)
+            logger.debug("SN: %s", json.dumps(config.logging.SN))
+        logger.debug("Host: %s", json.dumps(socket.gethostname()))
+        logger.debug("Current Working Directory: %s", json.dumps(Path.cwd().as_posix()))
+        logger.debug("Platform: %s", json.dumps(platform.system()))
+        logger.debug("Platform Release: %s", platform.release())
+        logger.debug("Platform Version: %s", platform.version())
+        logger.debug("Architecture: %s", json.dumps(platform.machine()))
+        logger.debug("Python Version: %s", sys.version.split()[0])
+        logger.debug("Python Executable: %s", json.dumps(Path(sys.executable).as_posix()))
+        logger.debug("Timezone: %s", tz)
+        logger.debug("AppConfig: %s", config)
         for name, module in sys.modules.items():
             if module is None or name == "__main__":
                 continue
             version = getattr(module, "__version__", None)
             if version is not None:
-                logger.info("Module: %s v%s", name, version)
+                logger.debug("Module: %s v%s", name, version)
 
         main(config)
 
