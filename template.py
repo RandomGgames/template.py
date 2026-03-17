@@ -101,52 +101,75 @@ def main(Config: Config):
 
 
 def save_default_config(file_path: Path, config: Config):
-    """Save JSON config based on dataclass defaults."""
+    """Save JSON config safely (atomic write)."""
+    def convert(obj):
+        if isinstance(obj, Path):
+            return str(obj)
+        if isinstance(obj, dict):
+            return {k: convert(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [convert(v) for v in obj]
+        return obj
+
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_path.open("w", encoding="utf-8") as f:
-        json.dump(asdict(config), f, indent=4)
+    temp_path = file_path.with_suffix(".tmp")
+    data = convert(asdict(config))
+    try:
+        with temp_path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        temp_path.replace(file_path)  # atomic replace
+    finally:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
 
 
 def load_config(file_path: Path, generate_if_missing: bool = True) -> Config:
-    """
-    Load configuration from JSON file.
-    If missing and generate_if_missing=True, auto-generate.
-    If missing and generate_if_missing=False, use dataclass defaults.
-    Any missing keys in existing JSON are filled from dataclass defaults.
-    """
-    def merge_defaults(dataclass_type, data: dict):
-        """Fill missing keys from dataclass defaults."""
-        defaults = asdict(dataclass_type())
-        merged = {**defaults, **data}  # Python 3.9+ can also use defaults | data
-        return dataclass_type(**merged)
+    def merge_defaults(cls, data: dict):
+        merged = {**asdict(cls()), **data}
+        if "logs_folder_name" in merged:
+            merged["logs_folder_name"] = Path(merged["logs_folder_name"])
+        return cls(**merged)
+
+    def save_if_needed(config: Config):
+        if generate_if_missing:
+            save_default_config(file_path, config)
 
     if not file_path.exists():
         config = Config()
-        if generate_if_missing:
-            save_default_config(file_path, config)
+        save_if_needed(config)
         return config
 
-    with file_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with file_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
 
-    # Merge defaults for each section
-    logging_cfg = merge_defaults(LoggingConfig, data.get("logging", {}))
-    exit_cfg = merge_defaults(ExitBehaviorConfig, data.get("exit_behavior", {}))
+    except json.JSONDecodeError:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = file_path.with_name(f"{file_path.stem}.corrupt_{timestamp}.json")
+        try:
+            file_path.rename(backup)
+        except Exception:
+            pass
 
-    # ScriptConfig is currently empty; merge if fields are added later
-    script_cfg = ScriptConfig()
+        config = Config()
+        save_if_needed(config)
+        return config
+
+    except Exception as e:
+        print(f"[WARN] Failed to read config: {e}")
+        return Config()
 
     config = Config(
-        logging=logging_cfg,
-        exit_behavior=exit_cfg,
-        script=script_cfg,
-        generate_config_if_missing=data.get("generate_config_if_missing", True)
+        logging=merge_defaults(LoggingConfig, data.get("logging", {})),
+        exit_behavior=merge_defaults(ExitBehaviorConfig, data.get("exit_behavior", {})),
+        script=ScriptConfig(),
+        generate_config_if_missing=data.get("generate_config_if_missing", True),
     )
 
-    # Optionally overwrite JSON with missing keys filled in
-    if generate_if_missing:
-        save_default_config(file_path, config)
-
+    save_if_needed(config)
     return config
 
 
@@ -242,6 +265,7 @@ def setup_logging(logger_obj: logging.Logger, config: LoggingConfig) -> Path:
 
 def bootstrap():
     exit_code = 0
+    config = Config()
     try:
         script_path = Path(__file__)
         config_path = script_path.with_name(f"{script_path.stem}_config.json")
