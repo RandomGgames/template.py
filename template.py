@@ -221,6 +221,22 @@ def setup_logging(logger_obj: logging.Logger, config: LoggingConfig) -> Path:
     console_handler.setFormatter(formatter)
     logger_obj.addHandler(console_handler)
 
+    try:
+        if config.mode in ("per_run", "single_file"):
+            if hasattr(config, "SN") and getattr(config, "SN", None):
+                script_name_token = f"{Path(__file__).stem}_{config.SN}"
+            else:
+                script_name_token = Path(__file__).stem
+
+            enforce_max_log_count(
+                dir_path=log_path.parent,
+                max_count=config.max_files,
+                script_name=script_name_token,
+            )
+    except Exception as pr_err:
+        # Do not break logging if pruning fails
+        logger_obj.debug("Log pruning skipped due to error: %s", pr_err)
+
     return log_path
 
 
