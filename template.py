@@ -13,8 +13,9 @@ import os
 import platform
 import socket
 import sys
+import tempfile
 import typing
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field, fields, asdict
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -22,6 +23,15 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 __version__ = "0.0.0"  # Major.Minor.Patch
+
+logger = logging.getLogger(__name__)
+log_buffer = logging.handlers.MemoryHandler(
+    capacity=0,
+    flushLevel=logging.CRITICAL,
+    target=None,
+)
+logger.addHandler(log_buffer)
+logger.setLevel(logging.DEBUG)
 
 
 @dataclass
@@ -31,8 +41,8 @@ class ScriptSettings:
 
 @dataclass
 class LogSettings:
-    mode: typing.Literal["per_run", "latest", "per_day", "single_file", "ConsoleOnly"] = "per_run"
-    folder: Path = Path.home() / "Logs"
+    mode: typing.Literal["per_run", "latest", "per_day", "single_file", "ConsoleOnly"] = "per_day"
+    folder: Path = Path(r"Logs")
     console_level: int = logging.DEBUG
     file_level: int = logging.DEBUG
     date_format: str = "%Y-%m-%d %H:%M:%S"
@@ -42,14 +52,14 @@ class LogSettings:
 
 
 @dataclass
-class RuntimeSettings:
-    pause_on_error: bool = True
-    always_pause: bool = False
+class InternalSettings:
+    use_config_file: bool = False
 
 
 @dataclass
-class GlobalSettings:
-    use_config_file: bool = False
+class RuntimeSettings:
+    pause_on_error: bool = True
+    always_pause: bool = False
 
 
 @dataclass
@@ -63,133 +73,121 @@ def main():
     """Code goes here"""
 
 
-def save_config(file_path: Path, config: Config) -> None:
-    """Save config to JSON using atomic write."""
-
-    def to_json_safe(obj):
-        if isinstance(obj, Path):
-            return str(obj)
-        if isinstance(obj, dict):
-            return {k: to_json_safe(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [to_json_safe(v) for v in obj]
-        return obj
-
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = file_path.with_suffix(".tmp")
-
-    data = to_json_safe(asdict(config))
+def read_json_file(file_path: Path) -> dict | list | None:
+    """
+    Safely reads and parses a JSON file.
+    """
+    if not file_path.exists():
+        logger.warning("File not found: %s", json.dumps(str(file_path)))
+        raise FileNotFoundError("File not found")
 
     try:
-        with temp_path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
+        data = json.loads(file_path.read_text(encoding='utf-8'))
+        logger.info("Successfully read data from %s", json.dumps(str(file_path)))
+        return data
 
-        temp_path.replace(file_path)
+    except json.JSONDecodeError as e:
+        logger.error("Invalid JSON format in %s: %s", json.dumps(str(file_path)), e)
+        return None
 
     except Exception as e:
-        logger.exception("")
-        raise e
-
-    finally:
-        if temp_path.exists():
-            try:
-                temp_path.unlink()
-            except Exception:
-                pass
+        logger.error("Unexpected error reading %s: %s", json.dumps(str(file_path)), e)
+        return None
 
 
-def load_config(file_path: Path, generate_if_missing: bool = True) -> Config:
-    """Load config, only adding missing defaults. Never overwrite existing values."""
+def write_json_file(file_path: Path, data: object) -> bool:
+    """
+    Writes data to a JSON file atomically.
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def merge_missing(default_obj, data: dict):
-        """Fill missing keys only. Do not modify existing values."""
-        result = {}
-        changed = False
-
-        for field_name, default_value in default_obj.__dict__.items():
-            if field_name.startswith("_"):
-                continue
-
-            if field_name in data:
-                incoming = data[field_name]
-
-                # Nested dataclass
-                if hasattr(default_value, "__dict__") and isinstance(incoming, dict):
-                    merged_child, child_changed = merge_missing(default_value, incoming)
-                    result[field_name] = merged_child
-                    if child_changed:
-                        changed = True
-                else:
-                    # Convert string → Path if default is Path
-                    if isinstance(default_value, Path) and isinstance(incoming, str):
-                        incoming = Path(incoming)
-                    result[field_name] = incoming
-            else:
-                # Only place we modify → add missing default
-                result[field_name] = default_value
-                changed = True
-
-        return type(default_obj)(**result), changed
-
-    def save(cfg: Config):
-        if generate_if_missing:
-            save_config(file_path, cfg)
-
-    # File missing
-    if not file_path.exists():
-        config = Config()
-        save(config)
-        return config
-
-    # Load JSON
+    temp_file_path: Path | None = None
     try:
-        with file_path.open("r", encoding="utf-8") as f:
-            raw_data = json.load(f)
+        with tempfile.NamedTemporaryFile(mode='w', dir=str(file_path.parent), encoding='utf-8', suffix=".tmp", delete=False) as tf:
+            # Get file path from tempfile object
+            temp_file_path = Path(tf.name)
+            logger.debug("Starting atomic write to %s", json.dumps(str(file_path)))
+            json.dump(data, tf, indent=4)
+            tf.flush()
+            os.fsync(tf.fileno())
 
-    except json.JSONDecodeError:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup = file_path.with_name(f"{file_path.stem}.corrupt_{timestamp}.json")
-        try:
-            file_path.rename(backup)
-        except Exception:
-            pass
+        # Atomic swap
+        temp_file_path.replace(file_path)
+        logger.info("Successfully saved to %s", json.dumps(str(file_path)))
+        return True
 
-        config = Config()
-        save(config)
-        return config
+    except (KeyboardInterrupt, SystemExit):
+        logger.error("Write interrupted for %s. Cleaning up.", json.dumps(str(file_path)))
+        if temp_file_path and temp_file_path.exists():
+            temp_file_path.unlink()
+        raise
 
-    except:
-        logger.exception("Failed to read config")
-        return Config()
+    except Exception as e:
+        logger.error("Failed to write to %s: %s", json.dumps(str(file_path)), e)
+        if temp_file_path and temp_file_path.exists():
+            temp_file_path.unlink()
+        return False
 
-    # Merge (ONLY missing keys)
+
+def load_config(file_path: Path) -> Config:
     config = Config()
+    needs_sync = False
 
-    logs, logs_changed = merge_missing(config.logs, raw_data.get("logs", {}))
-    script, script_changed = merge_missing(config.script, raw_data.get("script", {}))
-    runtime, runtime_changed = merge_missing(config.runtime, raw_data.get("runtime", {}))
+    try:
+        external_config = read_json_file(file_path)
+        if not isinstance(external_config, dict):
+            external_config = {}
+            needs_sync = True
+    except FileNotFoundError:
+        external_config = {}
+        needs_sync = True
+    except Exception:
+        raise
 
-    config = Config(
-        logs=logs,
-        script=script,
-        runtime=runtime,
-    )
+    # Merge logic
+    for section in fields(config):
+        section_name = section.name
+        if section_name not in external_config:
+            needs_sync = True
+            continue
 
-    # Detect if anything was added
-    any_changed = logs_changed or script_changed or runtime_changed
+        section_instance = getattr(config, section_name)
+        json_values = external_config[section_name]
 
-    # Save only if defaults were added
-    if any_changed:
-        save(config)
+        for f in fields(section_instance):
+            if f.name in json_values:
+                val = json_values[f.name]
+                if f.type is Path and isinstance(val, str):
+                    val = Path(val)
+                setattr(section_instance, f.name, val)
+            else:
+                needs_sync = True
+
+    # Check for keys in external config that aren't in internal config
+    internal_field_names = {f.name for f in fields(config)}
+    if any(k for k in external_config if k not in internal_field_names):
+        needs_sync = True
+
+    if needs_sync:
+        def path_serializer(obj):
+            if isinstance(obj, Path):
+                return str(obj)
+            raise TypeError(f"Type {type(obj)} not serializable")
+
+        # We re-serialize the internal_config (which now has merged data)
+        # This naturally prunes extra keys because they weren't in the dataclass!
+        synced_config = json.loads(json.dumps(asdict(config), default=path_serializer))
+        write_json_file(file_path, synced_config)
 
     return config
 
 
-def enforce_max_log_count(
-    dir_path: Path,
-    max_count: int,
-    script_name: str,
-) -> None:
+def save_config(file_path: Path, config_data: dict | list) -> bool:
+    """Alias for write_json_file, specifically for configuration files."""
+    return write_json_file(file_path, config_data)
+
+
+def enforce_max_log_count(dir_path: Path, max_count: int, script_name: str) -> None:
     """
     Enforce a maximum number of log files for this script.
     Deletes the oldest logs based on filename ordering.
@@ -220,16 +218,6 @@ def enforce_max_log_count(
             pass
 
 
-logger = logging.getLogger(__name__)
-log_buffer = logging.handlers.MemoryHandler(
-    capacity=0,
-    flushLevel=logging.CRITICAL,
-    target=None,
-)
-logger.addHandler(log_buffer)
-logger.setLevel(logging.DEBUG)
-
-
 def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path | None:
     """Set up file and console logging with flexible modes and rotation."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -242,8 +230,9 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path
     if log_settings.mode != "ConsoleOnly":
         log_dir = (log_settings.folder if isinstance(log_settings.folder, Path) else Path(log_settings.folder))
         log_dir = log_dir.expanduser().resolve()
-        log_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug("Created log folder: %s", log_dir.as_posix())
+        if not log_dir.exists():
+            log_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug("Created log folder: %s", log_dir.as_posix())
 
         match log_settings.mode:
             case "per_run":
@@ -323,27 +312,25 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path
 
 def bootstrap():
     exit_code = 0
-    config = Config()
     log_path = None
     script_path = Path(__file__)
+
+    logger.info("=" * 80)
+
+    config = Config()
     config_path = script_path.with_name(f"{script_path.stem}_config.json")
-    global_settings = GlobalSettings()
+    global_settings = InternalSettings()
+    if global_settings.use_config_file:
+        config = load_config(config_path)
+
     try:
-        config = load_config(config_path, generate_if_missing=global_settings.use_config_file)
         log_path = setup_logging(logger_obj=logger, log_settings=config.logs)
-        logger.debug("Script: %s", json.dumps(script_path.name))
-        logger.debug("Version: %s", __version__)
-        logger.debug("Host: %s", json.dumps(socket.gethostname()))
-        logger.debug("Current Working Directory: %s", json.dumps(Path.cwd().as_posix()))
-        logger.debug("Platform: %s %s v%s", platform.system(), platform.release(), platform.version())
-        logger.debug("Python Version: %s", sys.version.split()[0])
-        logger.debug("AppConfig: %s", config)
-        # for name, module in sys.modules.items():
-        #     if module is None or name == "__main__":
-        #         continue
-        #     version = getattr(module, "__version__", None)
-        #     if version is not None:
-        #         logger.debug("Module: %s v%s", name, version)
+        logger.info("%-10s %s", "Version:", __version__)
+        logger.info("%-10s %s on %s", "User/Host:", os.getlogin(), socket.gethostname())
+        logger.info("%-10s %s %s (v%s)", "Platform:", platform.system(), platform.release(), platform.version())
+        logger.info("%-10s Python %s", "Runtime:", sys.version.split()[0])
+        logger.info("%-10s %s", "Directory:", Path.cwd().as_posix())
+        logger.info("%-10s %s", "AppConfig:", config)
 
         main()
 
