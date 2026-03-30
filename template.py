@@ -99,7 +99,11 @@ def write_json_file(file_path: Path, data: object) -> bool:
     """
     Writes data to a JSON file atomically.
     """
-    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path = Path(file_path).absolute()
+
+    if not file_path.parent.exists():
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.debug("Created %s", json.dumps(str(file_path.parent.as_posix())))
 
     temp_file_path: Path | None = None
     try:
