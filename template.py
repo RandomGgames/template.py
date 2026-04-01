@@ -95,7 +95,7 @@ def read_json_file(file_path: Path) -> dict | list | None:
         return None
 
 
-def write_json_file(file_path: Path, data: object) -> bool:
+def write_json_file(file_path: Path, data: dict | list) -> bool:
     """
     Writes data to a JSON file atomically.
     """
