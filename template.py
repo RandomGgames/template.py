@@ -110,7 +110,6 @@ def write_json_file(file_path: Path, data: dict | list) -> bool:
         with tempfile.NamedTemporaryFile(mode='w', dir=str(file_path.parent), encoding='utf-8', suffix=".tmp", delete=False) as tf:
             # Get file path from tempfile object
             temp_file_path = Path(tf.name)
-            logger.debug("Starting atomic write to %s", json.dumps(str(file_path)))
             json.dump(data, tf, indent=4)
             tf.flush()
             os.fsync(tf.fileno())
