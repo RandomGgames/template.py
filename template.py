@@ -6,19 +6,26 @@
 {How to use the script}
 """
 
+import datetime
 import json
 import logging
 import logging.handlers
+# import math
+# import numpy as np
 import os
 import platform
+# import re
 import socket
 import sys
 import tempfile
+# import time
 import typing
 from dataclasses import dataclass, field, fields, asdict
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+# from send2trash import send2trash
+# from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +52,8 @@ class LogSettings:
     folder: Path = Path(r"Logs")
     console_level: int = logging.DEBUG
     file_level: int = logging.DEBUG
-    date_format: str = "%Y-%m-%d %H:%M:%S"
-    message_format: str = "%(asctime)s.%(msecs)03d %(levelname)s [%(funcName)s] - %(message)s"
+    date_format: str = "%Y-%m-%dT%H:%M:%S"
+    message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(module)s:%(funcName)s - %(message)s"
     max_files: int | None = 10
     open_log_after_run: bool = False
 
@@ -221,7 +228,7 @@ def enforce_max_log_count(dir_path: Path, max_count: int, script_name: str) -> N
             pass
 
 
-def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path | None:
+def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings, config: Config) -> Path | None:
     """Set up file and console logging with flexible modes and rotation."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     day_stamp = datetime.now().strftime("%Y%m%d")
@@ -235,7 +242,7 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path
         log_dir = log_dir.expanduser().resolve()
         if not log_dir.exists():
             log_dir.mkdir(parents=True, exist_ok=True)
-            logger.debug("Created log folder: %s", log_dir.as_posix())
+            logger_obj.debug("Created log folder: %s", log_dir.as_posix())
 
         match log_settings.mode:
             case "per_run":
@@ -277,6 +284,7 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path
                     mode=file_mode,
                     encoding="utf-8",
                 )
+
     if file_handler:
         file_handler.setLevel(log_settings.file_level)
         file_handler.setFormatter(formatter)
@@ -288,8 +296,11 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path
     console_handler.setFormatter(formatter)
     logger_obj.addHandler(console_handler)
 
+    # Write the banner after handlers are attached
+    write_banner(logger_obj, config)
+
     # Flush logs buffer from prior to logging initialization
-    if "log_buffer" in globals():
+    if "log_buffer" in globals() and 'log_buffer' in globals():
         class _ForwardToLogger(logging.Handler):
             def emit(self, record):
                 logger_obj.handle(record)
@@ -299,7 +310,7 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path
         log_buffer.flush()
         log_buffer.close()
 
-    # Enforce max log count (except per_day which rotates automatically)
+    # Enforce max log count
     if log_settings.max_files and log_path and log_settings.mode not in ("per_day", "ConsoleOnly"):
         try:
             enforce_max_log_count(
@@ -313,27 +324,48 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path
     return log_path
 
 
+def write_banner(logger_obj: logging.Logger, config: Config):
+    """Writes a clean, unformatted session header directly to the output streams."""
+    script_name = Path(__file__).name
+    separator = "-" * 80
+    header_text = (
+        f"{separator}\n"
+        f"SCRIPT          | {json.dumps(str(script_name))}\n"
+        f"VERSION         | {__version__}\n"
+        f"USER/HOST       | {os.getlogin()} on {socket.gethostname()}\n"
+        f"EXECUTION START | {datetime.now().isoformat(sep='T', timespec='milliseconds')}\n"
+        f"DIRECTORY       | {json.dumps(str(Path.cwd().as_posix()))}\n"
+        f"PLATFORM        | {platform.system()} {platform.release()}\n"
+        f"RUNTIME         | Python {sys.version.split()[0]}\n"
+        f"{separator}\n"
+    )
+
+    for handler in logger_obj.handlers:
+        if isinstance(handler, logging.StreamHandler):
+            try:
+                handler.stream.write(header_text)
+                handler.flush()
+            except Exception:
+                continue
+
+
 def bootstrap():
     exit_code = 0
     log_path = None
     script_path = Path(__file__)
 
-    logger.info("=" * 80)
-
+    # 1. Initialize Config First
     config = Config()
     config_path = script_path.with_name(f"{script_path.stem}_config.json")
-    global_settings = InternalSettings()
-    if global_settings.use_config_file:
+    if InternalSettings().use_config_file:
         config = load_config(config_path)
 
     try:
-        log_path = setup_logging(logger_obj=logger, log_settings=config.logs)
-        logger.info("%-10s %s", "Version:", __version__)
-        logger.info("%-10s %s on %s", "User/Host:", os.getlogin(), socket.gethostname())
-        logger.info("%-10s %s %s (v%s)", "Platform:", platform.system(), platform.release(), platform.version())
-        logger.info("%-10s Python %s", "Runtime:", sys.version.split()[0])
-        logger.info("%-10s %s", "Directory:", Path.cwd().as_posix())
-        logger.info("%-10s %s", "AppConfig:", config)
+        # 2. Setup Logging (This now handles the banner)
+        log_path = setup_logging(logger_obj=logger, log_settings=config.logs, config=config)
+
+        # 3. Only log dynamic app data here
+        logger.info("Configuration loaded: %s", config)
 
         main()
 
