@@ -76,7 +76,7 @@ class Config:
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
 
 
-def main():
+def main(config: Config):
     """Code goes here"""
 
 
@@ -367,7 +367,7 @@ def bootstrap():
         # 3. Only log dynamic app data here
         logger.info("Configuration loaded: %s", config)
 
-        main()
+        main(config)
 
     except KeyboardInterrupt:
         logger.warning("Operation interrupted by user.")
