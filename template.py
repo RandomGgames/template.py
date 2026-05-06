@@ -10,22 +10,15 @@ import datetime
 import json
 import logging
 import logging.handlers
-# import math
-# import numpy as np
 import os
 import platform
-# import re
 import socket
 import sys
 import tempfile
-# import time
 import typing
-from dataclasses import dataclass, field, fields, asdict
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-# from send2trash import send2trash
-# from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -41,39 +34,34 @@ logger.addHandler(log_buffer)
 logger.setLevel(logging.DEBUG)
 
 
-@dataclass
 class ScriptSettings:
-    """Place any code for whatever script is being writen here"""
+    def __init__(self):
+        """Place any code for whatever script is being writen here"""
 
 
-@dataclass
 class LogSettings:
-    mode: typing.Literal["per_run", "latest", "per_day", "single_file", "ConsoleOnly"] = "per_day"
-    folder: Path = Path(r"Logs")
-    console_level: int = logging.DEBUG
-    file_level: int = logging.DEBUG
-    date_format: str = "%Y-%m-%dT%H:%M:%S"
-    message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(module)s:%(funcName)s - %(message)s"
-    max_files: int | None = 10
-    open_log_after_run: bool = False
+    def __init__(self):
+        self.mode: typing.Literal["per_run", "latest", "per_day", "single_file", "ConsoleOnly"] = "per_run"
+        self.folder: Path = Path(r"Logs")
+        self.console_level: int = logging.DEBUG
+        self.file_level: int = logging.DEBUG
+        self.date_format: str = "%Y-%m-%dT%H:%M:%S"
+        self.message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(module)s:%(funcName)s - %(message)s"
+        self.max_files: int | None = 30
+        self.open_log_after_run: bool = False
 
 
-@dataclass
-class InternalSettings:
-    use_config_file: bool = False
-
-
-@dataclass
 class RuntimeSettings:
-    pause_on_error: bool = True
-    always_pause: bool = False
+    def __init__(self):
+        self.pause_on_error: bool = True
+        self.always_pause: bool = False
 
 
-@dataclass
 class Config:
-    script: ScriptSettings = field(default_factory=ScriptSettings)
-    logs: LogSettings = field(default_factory=LogSettings)
-    runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
+    def __init__(self):
+        self.ScriptSettings = ScriptSettings()
+        self.LogSettings = LogSettings()
+        self.RuntimeSettings = RuntimeSettings()
 
 
 def main(config: Config):
@@ -137,64 +125,6 @@ def write_json_file(file_path: Path, data: dict | list) -> bool:
         if temp_file_path and temp_file_path.exists():
             temp_file_path.unlink()
         return False
-
-
-def load_config(file_path: Path) -> Config:
-    config = Config()
-    needs_sync = False
-
-    try:
-        external_config = read_json_file(file_path)
-        if not isinstance(external_config, dict):
-            external_config = {}
-            needs_sync = True
-    except FileNotFoundError:
-        external_config = {}
-        needs_sync = True
-    except Exception:
-        raise
-
-    # Merge logic
-    for section in fields(config):
-        section_name = section.name
-        if section_name not in external_config:
-            needs_sync = True
-            continue
-
-        section_instance = getattr(config, section_name)
-        json_values = external_config[section_name]
-
-        for f in fields(section_instance):
-            if f.name in json_values:
-                val = json_values[f.name]
-                if f.type is Path and isinstance(val, str):
-                    val = Path(val)
-                setattr(section_instance, f.name, val)
-            else:
-                needs_sync = True
-
-    # Check for keys in external config that aren't in internal config
-    internal_field_names = {f.name for f in fields(config)}
-    if any(k for k in external_config if k not in internal_field_names):
-        needs_sync = True
-
-    if needs_sync:
-        def path_serializer(obj):
-            if isinstance(obj, Path):
-                return str(obj)
-            raise TypeError(f"Type {type(obj)} not serializable")
-
-        # We re-serialize the internal_config (which now has merged data)
-        # This naturally prunes extra keys because they weren't in the dataclass!
-        synced_config = json.loads(json.dumps(asdict(config), default=path_serializer))
-        write_json_file(file_path, synced_config)
-
-    return config
-
-
-def save_config(file_path: Path, config_data: dict | list) -> bool:
-    """Alias for write_json_file, specifically for configuration files."""
-    return write_json_file(file_path, config_data)
 
 
 def enforce_max_log_count(dir_path: Path, max_count: int, script_name: str) -> None:
@@ -349,23 +279,46 @@ def write_banner(logger_obj: logging.Logger, config: Config):
                 continue
 
 
+def to_class_str(obj, key_name=None):
+    """
+    Recursively converts objects to a single-line Pythonic string.
+    """
+    if isinstance(obj, Path):
+        val_str = f"Path({repr(str(obj))})"
+    elif isinstance(obj, list):
+        items = [to_class_str(item) for item in obj]
+        val_str = f"[{', '.join(items)}]"
+    elif hasattr(obj, "__dict__"):
+        class_name = type(obj).__name__
+        attrs = {k: v for k, v in obj.__dict__.items() if not k.startswith('_')}
+
+        if not attrs:
+            val_str = f"{class_name}()"
+        else:
+            # Build "key=value" pairs, but skip "key=" if key matches ClassName
+            parts = [to_class_str(v, k) for k, v in attrs.items()]
+            val_str = f"{class_name}({', '.join(parts)})"
+    else:
+        val_str = repr(obj)
+
+    # Omit "key=" prefix if key name matches the ClassName
+    if key_name is None or key_name == type(obj).__name__:
+        return val_str
+
+    return f"{key_name}={val_str}"
+
+
 def bootstrap():
     exit_code = 0
     log_path = None
-    script_path = Path(__file__)
 
-    # 1. Initialize Config First
     config = Config()
-    config_path = script_path.with_name(f"{script_path.stem}_config.json")
-    if InternalSettings().use_config_file:
-        config = load_config(config_path)
 
     try:
-        # 2. Setup Logging (This now handles the banner)
-        log_path = setup_logging(logger_obj=logger, log_settings=config.logs, config=config)
+        log_path = setup_logging(logger_obj=logger, log_settings=config.LogSettings, config=config)
 
-        # 3. Only log dynamic app data here
-        logger.info("Configuration loaded: %s", config)
+        config_summary = json.dumps(to_class_str(config))
+        logger.info("Configuration loaded: %s", config_summary)
 
         main(config)
 
@@ -380,7 +333,7 @@ def bootstrap():
             handler.close()
             logger.removeHandler(handler)
 
-    if config.logs.open_log_after_run and log_path and log_path.exists():
+    if config.LogSettings.open_log_after_run and log_path and log_path.exists():
         try:
             match sys.platform:
                 case plat if plat.startswith("win"):  # Windows
@@ -392,7 +345,7 @@ def bootstrap():
         except Exception as e:
             logger.warning("Failed to open log file: %s", e)
 
-    if config.runtime.always_pause or (config.runtime.pause_on_error and exit_code != 0):
+    if config.RuntimeSettings.always_pause or (config.RuntimeSettings.pause_on_error and exit_code != 0):
         input("Press Enter to exit...")
 
     return exit_code
