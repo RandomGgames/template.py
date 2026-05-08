@@ -41,7 +41,7 @@ class ScriptSettings:
 
 class LogSettings:
     def __init__(self):
-        self.mode: typing.Literal["per_run", "latest", "per_day", "single_file", "ConsoleOnly"] = "per_run"
+        self.mode: typing.Literal["per_run", "latest", "per_day", "single_file", "console_only"] = "per_run"
         self.folder: Path = Path(r"Logs")
         self.console_level: int = logging.DEBUG
         self.file_level: int = logging.DEBUG
@@ -167,7 +167,7 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings, config:
 
     log_path: Path | None = None
 
-    if log_settings.mode != "ConsoleOnly":
+    if log_settings.mode != "console_only":
         log_dir = (log_settings.folder if isinstance(log_settings.folder, Path) else Path(log_settings.folder))
         log_dir = log_dir.expanduser().resolve()
         if not log_dir.exists():
@@ -241,7 +241,7 @@ def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings, config:
         log_buffer.close()
 
     # Enforce max log count
-    if log_settings.max_files and log_path and log_settings.mode not in ("per_day", "ConsoleOnly"):
+    if log_settings.max_files and log_path and log_settings.mode not in ("per_day", "console_only"):
         try:
             enforce_max_log_count(
                 dir_path=log_path.parent,
