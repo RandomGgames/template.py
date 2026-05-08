@@ -59,9 +59,9 @@ class RuntimeSettings:
 
 class Config:
     def __init__(self):
-        self.ScriptSettings = ScriptSettings()
-        self.LogSettings = LogSettings()
-        self.RuntimeSettings = RuntimeSettings()
+        self.script_settings = ScriptSettings()
+        self.log_settings = LogSettings()
+        self.runtime_settings = RuntimeSettings()
 
 
 def main(config: Config):
@@ -279,35 +279,6 @@ def write_banner(logger_obj: logging.Logger, config: Config):
                 continue
 
 
-def to_class_str(obj, key_name=None):
-    """
-    Recursively converts objects to a single-line Pythonic string.
-    """
-    if isinstance(obj, Path):
-        val_str = f"Path({repr(str(obj))})"
-    elif isinstance(obj, list):
-        items = [to_class_str(item) for item in obj]
-        val_str = f"[{', '.join(items)}]"
-    elif hasattr(obj, "__dict__"):
-        class_name = type(obj).__name__
-        attrs = {k: v for k, v in obj.__dict__.items() if not k.startswith('_')}
-
-        if not attrs:
-            val_str = f"{class_name}()"
-        else:
-            # Build "key=value" pairs, but skip "key=" if key matches ClassName
-            parts = [to_class_str(v, k) for k, v in attrs.items()]
-            val_str = f"{class_name}({', '.join(parts)})"
-    else:
-        val_str = repr(obj)
-
-    # Omit "key=" prefix if key name matches the ClassName
-    if key_name is None or key_name == type(obj).__name__:
-        return val_str
-
-    return f"{key_name}={val_str}"
-
-
 def bootstrap():
     exit_code = 0
     log_path = None
@@ -315,11 +286,7 @@ def bootstrap():
     config = Config()
 
     try:
-        log_path = setup_logging(logger_obj=logger, log_settings=config.LogSettings, config=config)
-
-        config_summary = json.dumps(to_class_str(config))
-        logger.info("Configuration loaded: %s", config_summary)
-
+        log_path = setup_logging(logger_obj=logger, log_settings=config.log_settings, config=config)
         main(config)
 
     except KeyboardInterrupt:
@@ -333,7 +300,7 @@ def bootstrap():
             handler.close()
             logger.removeHandler(handler)
 
-    if config.LogSettings.open_log_after_run and log_path and log_path.exists():
+    if config.log_settings.open_log_after_run and log_path and log_path.exists():
         try:
             match sys.platform:
                 case plat if plat.startswith("win"):  # Windows
@@ -345,7 +312,7 @@ def bootstrap():
         except Exception as e:
             logger.warning("Failed to open log file: %s", e)
 
-    if config.RuntimeSettings.always_pause or (config.RuntimeSettings.pause_on_error and exit_code != 0):
+    if config.runtime_settings.always_pause or (config.runtime_settings.pause_on_error and exit_code != 0):
         input("Press Enter to exit...")
 
     return exit_code
