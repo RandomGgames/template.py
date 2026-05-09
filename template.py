@@ -63,15 +63,6 @@ class Config:
         self.runtime_settings = RuntimeSettings()
 
 
-class RawFormatter(logging.Formatter):
-    """
-    Formatter that outputs only the log message with no prefixes.
-    """
-
-    def format(self, record):
-        return record.getMessage()
-
-
 def main(config: Config):
     """Code goes here"""
 
@@ -312,6 +303,14 @@ def write_banner(logger_obj: logging.Logger):
     )
 
     original_formatters = {}
+
+    class RawFormatter(logging.Formatter):
+        """
+        Formatter that outputs only the log message with no prefixes.
+        """
+
+        def format(self, record):
+            return record.getMessage()
 
     try:
         for handler in logger_obj.handlers:
