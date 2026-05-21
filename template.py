@@ -10,7 +10,6 @@ import json
 import logging
 import logging.handlers
 import os
-import platform
 import socket
 import sys
 import typing
@@ -45,7 +44,8 @@ class LogSettings:
     console_level: int = logging.DEBUG
     file_level: int = logging.DEBUG
     date_format: str = "%Y-%m-%dT%H:%M:%S"
-    message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(module)s:%(funcName)s - %(message)s"
+    message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(message)s"
+    # message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(module)s:%(funcName)s - %(message)s"
     max_files: int | None = 30
     open_log_after_run: bool = False
 
@@ -221,13 +221,12 @@ def write_banner(logger_obj: logging.Logger):
 
     banner = (
         f"{separator}\n"
-        f"SCRIPT          | {json.dumps(Path(__file__).name)}\n"
-        f"VERSION         | {__version__}\n"
-        f"USER/HOST       | {os.getlogin()} on {socket.gethostname()}\n"
-        f"EXECUTION START | {datetime.now().isoformat(timespec='milliseconds')}\n"
-        f"DIRECTORY       | {json.dumps(Path.cwd().as_posix())}\n"
-        f"PLATFORM        | {platform.system()} {platform.release()}\n"
-        f"RUNTIME         | Python {sys.version.split()[0]}\n"
+        f"SCRIPT     | {json.dumps(Path(__file__).resolve().as_posix())}\n"
+        f"VERSION    | {__version__}\n"
+        f"START TIME | {datetime.now().isoformat(timespec='milliseconds')}\n"
+        f"USER       | {os.getlogin()}\n"
+        f"HOST       | {socket.gethostname()}\n"
+        f"RUNTIME    | Python {sys.version.split()[0]}\n"
         f"{separator}"
     )
 
