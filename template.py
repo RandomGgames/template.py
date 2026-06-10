@@ -127,26 +127,37 @@ def build_log_path(log_settings: LogSettings) -> Path | None:
 
 class JsonArgsFilter(logging.Filter):
     """
-    Automatically formats log arguments using JSON serialization rules.
-    Guarantees double quotes around strings and paths without manual formatting.
+    Automatically formats log arguments:
+    - Keeps numeric types intact (so %d / %.6f still work)
+    - Applies JSON-style formatting to Path and str (adds quotes)
+    - Safely serializes other objects
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.args:
-            # Normalize arguments into a flat list for processing
-            raw_args = list(record.args) if isinstance(record.args, tuple) else [record.args]
-            processed_args: list[str] = []
+        if not record.args:
+            return True
 
-            for val in raw_args:
-                if isinstance(val, Path):
-                    processed_args.append(json.dumps(val.as_posix(), default=str))
-                elif isinstance(val, str):
+        raw_args = list(record.args) if isinstance(record.args, tuple) else [record.args]
+        processed_args = []
+
+        for val in raw_args:
+            match val:
+                case Path():
+                    processed_args.append(json.dumps(val.as_posix()))
+
+                case str():
                     processed_args.append(json.dumps(val))
-                else:
+
+                case int() | float() | bool():
+                    processed_args.append(val)
+
+                case None:
+                    processed_args.append(val)
+
+                case _:
                     processed_args.append(json.dumps(val, default=str))
 
-            # Cast back to tuple so the logger can unpack it safely
-            record.args = tuple(processed_args)
+        record.args = tuple(processed_args)
         return True
 
 
