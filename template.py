@@ -32,13 +32,13 @@ logger.addHandler(log_buffer)
 logger.setLevel(logging.DEBUG)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ScriptSettings:
     """Place any code for whatever script is being written here."""
     # a_list: list[object] = field(default_factory=lambda: [])
 
 
-@dataclass
+@dataclass(frozen=True)
 class LogSettings:
     mode: typing.Literal["per_run", "latest", "per_day", "single_file", "console_only"] = "per_run"
     folder: Path = Path("Logs")
@@ -51,13 +51,13 @@ class LogSettings:
     open_log_after_run: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class RuntimeSettings:
     pause_on_error: bool = True
     always_pause: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class Config:
     script_settings: ScriptSettings = field(default_factory=ScriptSettings)
     log_settings: LogSettings = field(default_factory=LogSettings)
