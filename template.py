@@ -35,6 +35,7 @@ logger.setLevel(logging.DEBUG)
 @dataclass
 class ScriptSettings:
     """Place any code for whatever script is being written here."""
+    # a_list: list[object] = field(default_factory=lambda: [])
 
 
 @dataclass
