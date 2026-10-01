@@ -6,272 +6,72 @@
 {How to use the script}
 """
 
-import json
-import logging
-import logging.handlers
-import os
-import socket
-import sys
-import typing
-from dataclasses import dataclass, field
 from datetime import datetime
-from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+import logging
+import sys
+
+__version__ = "0.0.0"
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.0.0"  # Major.Minor.Patch
 
-log_buffer = logging.handlers.MemoryHandler(
-    capacity=0,
-    flushLevel=logging.CRITICAL,
-    target=None,
-)
-
-logger.addHandler(log_buffer)
-logger.setLevel(logging.DEBUG)
+def main() -> None:
+    logger.info("Code goes here")
 
 
-@dataclass(frozen=True)
-class ScriptSettings:
-    """Place any code for whatever script is being written here."""
-    # a_list: list[object] = field(default_factory=lambda: [])
+def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.DEBUG, enable_file_logging: bool = True, max_log_files: int = 30, file_level: int = logging.DEBUG, date_format: str = "%Y-%m-%dT%H:%M:%S", message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(message)s") -> Path | None:
+    """Configures file and console logging and prunes old logs for this script."""
+    logger.setLevel(logging.DEBUG)
 
+    formatter = logging.Formatter(message_format, datefmt=date_format)
 
-@dataclass(frozen=True)
-class LogSettings:
-    mode: typing.Literal["per_run", "latest", "per_day", "single_file", "console_only"] = "per_run"
-    folder: Path = Path("Logs")
-    console_level: int = logging.DEBUG
-    file_level: int = logging.DEBUG
-    date_format: str = "%Y-%m-%dT%H:%M:%S"
-    message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(message)s"
-    # message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)-8s] %(module)s:%(funcName)s - %(message)s"
-    max_files: int | None = 30
-    open_log_after_run: bool = False
-
-
-@dataclass(frozen=True)
-class RuntimeSettings:
-    pause_on_error: bool = True
-    always_pause: bool = False
-
-
-@dataclass(frozen=True)
-class Config:
-    script_settings: ScriptSettings = field(default_factory=ScriptSettings)
-    log_settings: LogSettings = field(default_factory=LogSettings)
-    runtime_settings: RuntimeSettings = field(default_factory=RuntimeSettings)
-
-
-def main(config: Config):
-    """Code goes here"""
-
-
-def enforce_max_log_count(dir_path: Path, max_count: int, script_name: str) -> None:
-    """
-    Enforce a maximum number of log files for this script.
-
-    Rules:
-    - Only affects files ending with `.log`
-    - Only affects logs that contain the script name
-    - Sorting is performed lexicographically by filename
-    """
-    if max_count <= 0:
-        return
-
-    if not dir_path.exists():
-        return
-
-    log_files = [f for f in dir_path.glob("*.log") if script_name in f.name]
-    if len(log_files) <= max_count:
-        return
-    log_files.sort(key=lambda p: p.name)
-    to_delete = log_files[:-max_count]
-    for file in to_delete:
-        try:
-            file.unlink()
-            logger.debug("Removed old log %s", file)
-        except OSError as e:
-            logger.debug("Failed removing old log %s: %s", file, e)
-
-
-def build_log_path(log_settings: LogSettings) -> Path | None:
-    """
-    Builds the final log file path based on logging mode.
-    """
-    if log_settings.mode == "console_only":
-        return None
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    day_stamp = datetime.now().strftime("%Y%m%d")
-
-    script_name = Path(__file__).stem
-    pc_name = socket.gethostname()
-
-    log_dir = Path(log_settings.folder).expanduser().resolve()
-
-    match log_settings.mode:
-        case "per_run":
-            filename = f"{timestamp}__{script_name}__{pc_name}.log"
-        case "latest":
-            filename = f"latest_{script_name}__{pc_name}.log"
-        case "per_day":
-            filename = f"{day_stamp}__{script_name}__{pc_name}.log"
-        case "single_file":
-            filename = f"{script_name}__{pc_name}.log"
-        case _:
-            filename = f"{timestamp}__{script_name}__{pc_name}.log"
-
-    return log_dir / filename
-
-
-class JsonArgsFilter(logging.Filter):
-    """
-    Automatically formats log arguments:
-    - Keeps numeric types intact (so %d / %.6f still work)
-    - Applies JSON-style formatting to Path and str (adds quotes)
-    - Safely serializes other objects
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if not record.args:
-            return True
-
-        raw_args = list(record.args) if isinstance(record.args, tuple) else [record.args]
-        processed_args = []
-
-        for val in raw_args:
-            match val:
-                case Path():
-                    processed_args.append(json.dumps(val.as_posix()))
-
-                case str():
-                    processed_args.append(json.dumps(val))
-
-                case int() | float() | bool():
-                    processed_args.append(val)
-
-                case None:
-                    processed_args.append(val)
-
-                case _:
-                    processed_args.append(json.dumps(val, default=str))
-
-        record.args = tuple(processed_args)
-        return True
-
-
-def setup_logging(logger_obj: logging.Logger, log_settings: LogSettings) -> Path | None:
-    """
-    Set up console and file logging.
-    """
-    logger_obj.handlers.clear()
-    logger_obj.setLevel(logging.DEBUG)
-    logger_obj.propagate = False
-
-    # Attach the automatic JSON formatting filter
-    logger_obj.addFilter(JsonArgsFilter())
-
-    log_path = build_log_path(log_settings)
-
-    formatter = logging.Formatter(
-        log_settings.message_format,
-        datefmt=log_settings.date_format,
-    )
-
-    if log_path:
-        try:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        except OSError as e:
-            raise RuntimeError(f"Failed creating log directory {log_path.parent}") from e
-
-        file_handler: logging.Handler
-
-        match log_settings.mode:
-            case "per_day":
-                file_handler = TimedRotatingFileHandler(filename=log_path, when="midnight", interval=1, backupCount=log_settings.max_files or 0, encoding="utf-8")
-            case "single_file":
-                file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-            case _:
-                file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-
-        file_handler.setLevel(log_settings.file_level)
-        file_handler.setFormatter(formatter)
-        logger_obj.addHandler(file_handler)
-
+    # Console Handler (always active)
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_settings.console_level)
+    console_handler.setLevel(console_level)
     console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
 
-    logger_obj.addHandler(console_handler)
+    log_path: Path | None = None
 
-    write_banner(logger_obj)
+    # Optional File Handler
+    if enable_file_logging:
+        script_stem = Path(__file__).stem
+        timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
 
-    if log_buffer:
-        class _ForwardToLogger(logging.Handler):
-            def emit(self, record):
-                logger_obj.handle(record)
+        log_dir = log_folder.expanduser().resolve()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"{timestamp}_{script_stem}.log"
 
-        forward_handler = _ForwardToLogger()
-        log_buffer.setTarget(forward_handler)
-        log_buffer.flush()
-        log_buffer.close()
+        file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+        file_handler.setLevel(file_level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
-    if (log_settings.max_files and log_path and log_settings.mode not in ("per_day", "console_only")):
-        enforce_max_log_count(dir_path=log_path.parent, max_count=log_settings.max_files, script_name=Path(__file__).stem)
+        # Prune old logs specific to this script
+        if max_log_files > 0 and log_dir.exists():
+            script_logs = sorted(
+                [f for f in log_dir.glob("*.log") if f.name.endswith(f"_{script_stem}.log")],
+                key=lambda p: p.stat().st_mtime,
+            )
+            while len(script_logs) > max_log_files:
+                oldest = script_logs.pop(0)
+                try:
+                    oldest.unlink()
+                except OSError:
+                    pass
 
     return log_path
 
 
-def write_banner(logger_obj: logging.Logger):
-    """
-    Writes a clean session banner without log prefixes.
-    """
-    separator = "-" * 80
+if __name__ == "__main__":
+    PAUSE_ON_ERROR = True
+    ALWAYS_PAUSE = False
 
-    banner = (
-        f"{separator}\n"
-        f"SCRIPT     | {json.dumps(Path(__file__).resolve().as_posix())}\n"
-        f"VERSION    | {__version__}\n"
-        f"START TIME | {datetime.now().isoformat(timespec='milliseconds')}\n"
-        f"USER       | {os.getlogin()}\n"
-        f"HOST       | {socket.gethostname()}\n"
-        f"RUNTIME    | Python {sys.version.split()[0]}\n"
-        f"{separator}"
-    )
-
-    original_formatters = {}
-
-    class RawFormatter(logging.Formatter):
-        """
-        Formatter that outputs only the log message with no prefixes.
-        """
-
-        def format(self, record):
-            return record.getMessage()
-
-    try:
-        for handler in logger_obj.handlers:
-            original_formatters[handler] = handler.formatter
-            handler.setFormatter(RawFormatter())
-
-        logger_obj.info(banner)
-
-    finally:
-        for handler, formatter in original_formatters.items():
-            handler.setFormatter(formatter)
-
-
-def bootstrap():
     exit_code = 0
-    log_path: Path | None = None
-    config = Config()
-
     try:
-        log_path = setup_logging(logger_obj=logger, log_settings=config.log_settings)
-        main(config)
+        setup_logging()
+        main()
 
     except KeyboardInterrupt:
         logger.warning("Operation interrupted by user.")
@@ -281,24 +81,6 @@ def bootstrap():
         logger.exception("A fatal error has occurred: %s", e)
         exit_code = 1
 
-    if (config.log_settings.open_log_after_run and log_path and log_path.exists()):
-        try:
-            match sys.platform:
-                case plat if plat.startswith("win"):
-                    os.startfile(log_path)
-                case "darwin":
-                    os.system(f'open "{log_path}"')
-                case _:
-                    os.system(f'xdg-open "{log_path}"')
-
-        except Exception as e:
-            logger.warning("Failed to open log file: %s", e)
-
-    if (config.runtime_settings.always_pause or (config.runtime_settings.pause_on_error and exit_code != 0)):
-        input("Press Enter to exit...")
-
-    return exit_code
-
-
-if __name__ == "__main__":
-    sys.exit(bootstrap())
+    finally:
+        # input("Press Enter to exit...")
+        sys.exit(exit_code)
