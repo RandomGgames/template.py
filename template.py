@@ -6,14 +6,16 @@
 {How to use the script}
 """
 
-try:
-    from datetime import datetime
-    from pathlib import Path
-    import logging
-    import sys
-except ModuleNotFoundError as e:
-    print(f"[ERROR] Missing dependency: {e}")
-    input("\nPress Enter to exit...")
+import logging
+import sys
+from datetime import datetime
+from pathlib import Path
+
+# try:
+#     import some_third_party_module
+# except ModuleNotFoundError as e:
+#     print(f"[ERROR] Missing dependency: {e}")
+#     input("\nPress Enter to exit...")
 
 __version__ = "0.0.0"
 
@@ -24,8 +26,16 @@ def main() -> None:
     logger.info("Code goes here")
 
 
-def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.DEBUG, enable_file_logging: bool = True, max_log_files: int = 30, file_level: int = logging.DEBUG, date_format: str = "%Y-%m-%dT%H:%M:%S", message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s") -> Path | None:
+def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.DEBUG, enable_file_logging: bool = True, max_log_files: int | None = 30, file_level: int = logging.DEBUG, date_format: str = "%Y-%m-%dT%H:%M:%S", message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s") -> Path | None:
     """Configures file and console logging and prunes old logs for this script."""
+    if max_log_files is not None and max_log_files < 1:
+        raise ValueError("max_log_files must be at least 1 or None.")
+
+    for handler in logger.handlers[:]:
+        handler.close()
+        logger.removeHandler(handler)
+
+    logger.propagate = False
     logger.setLevel(logging.DEBUG)
 
     formatter = logging.Formatter(message_format, datefmt=date_format)
@@ -43,7 +53,7 @@ def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.
         script_stem = Path(__file__).stem
         timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
 
-        log_dir = log_folder.expanduser().resolve()
+        log_dir = Path(log_folder).expanduser().resolve()
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"{timestamp}_{script_stem}.log"
 
@@ -53,7 +63,7 @@ def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.
         logger.addHandler(file_handler)
 
         # Prune old logs specific to this script
-        if max_log_files > 0 and log_dir.exists():
+        if max_log_files is not None and log_dir.exists():
             script_logs = sorted(
                 [f for f in log_dir.glob("*.log") if f.name.endswith(f"_{script_stem}.log")],
                 key=lambda p: p.stat().st_mtime,
@@ -69,22 +79,21 @@ def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.
 
 
 if __name__ == "__main__":
-    PAUSE_ON_ERROR = True
-    ALWAYS_PAUSE = False
-
     exit_code = 0
     try:
-        setup_logging()
+        setup_logging(max_log_files=5)
+        # setup_logging(log_folder=Path(f"~/AppData/Local/Temp/{Path(__file__).stem}"), max_log_files=5) # C:\Users\YourName\AppData\Local\Temp\{script_name}
         main()
 
     except KeyboardInterrupt:
+        print()
         logger.warning("Operation interrupted by user.")
         exit_code = 130
 
     except Exception as e:
+        print()
         logger.exception("A fatal error has occurred: %s", e)
         exit_code = 1
 
-    finally:
-        # input("Press Enter to exit...")
-        sys.exit(exit_code)
+    # input("Press Enter to exit...") # Uncomment to keep console open after script run
+    sys.exit(exit_code)
