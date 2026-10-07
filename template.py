@@ -6,10 +6,14 @@
 {How to use the script}
 """
 
-from datetime import datetime
-from pathlib import Path
-import logging
-import sys
+try:
+    from datetime import datetime
+    from pathlib import Path
+    import logging
+    import sys
+except ModuleNotFoundError as e:
+    print(f"[ERROR] Missing dependency: {e}")
+    input("\nPress Enter to exit...")
 
 __version__ = "0.0.0"
 
