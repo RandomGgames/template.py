@@ -57,17 +57,15 @@ def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.
         logger.addHandler(file_handler)
 
         # Prune old logs specific to this script
-        if max_log_files is not None and log_dir.exists():
-            script_logs = sorted(
-                [f for f in log_dir.glob("*.log") if f.name.endswith(f"_{script_stem}.log")],
-                key=lambda p: p.stat().st_mtime,
-            )
+        if max_log_files is not None:
+            script_logs = sorted(p for p in log_dir.glob("*.log") if p.stem.partition("_")[2] == script_stem)
+
             while len(script_logs) > max_log_files:
                 oldest = script_logs.pop(0)
                 try:
                     oldest.unlink()
                 except OSError:
-                    pass
+                    logger.warning("Failed to remove old log file: %s", oldest)
 
     return log_path
 
