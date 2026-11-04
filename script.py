@@ -11,12 +11,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# try:
-#     import some_third_party_module
-# except ModuleNotFoundError as e:
-#     print(f"[ERROR] Missing dependency: {e}")
-#     input("\nPress Enter to exit...")
-
 __version__ = "0.0.0"
 
 logger = logging.getLogger(__name__)
