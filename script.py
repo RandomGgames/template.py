@@ -11,6 +11,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+__version__ = "0.0.0"
+
 logger = logging.getLogger(__name__)
 
 
