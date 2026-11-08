@@ -6,10 +6,10 @@
 {How to use the script}
 """
 
-import logging
-import sys
 from datetime import datetime
 from pathlib import Path
+import logging
+import sys
 
 __version__ = "0.0.0"
 
