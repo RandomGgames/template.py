@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     logger.info("Code goes here")
 
+
 def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.DEBUG, file_level: int = logging.DEBUG, enable_file_logging: bool = True, max_log_files: int | None = 30, date_format: str = "%Y-%m-%dT%H:%M:%S", console_message_format: str = "%(message)s", file_message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s") -> Path | None:
     """Configures file and console logging and prunes old logs for this script."""
     if max_log_files is not None and max_log_files < 1:
