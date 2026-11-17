@@ -6,7 +6,7 @@
 {How to use the script}
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import logging
 import sys
@@ -20,10 +20,22 @@ def main() -> None:
     logger.info("Code goes here")
 
 
-def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.INFO, file_level: int = logging.DEBUG, enable_file_logging: bool = True, max_log_files: int | None = 30, date_format: str = "%Y-%m-%dT%H:%M:%S", console_message_format: str = "%(message)s", file_message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s") -> Path | None:
+def setup_logging(
+    log_folder: Path = Path("Logs"),
+    console_level: int = logging.INFO,
+    file_level: int = logging.DEBUG,
+    enable_file_logging: bool = True,
+    max_log_files: int | None = 30,
+    max_log_age: timedelta | None = None,
+    date_format: str = "%Y-%m-%dT%H:%M:%S",
+    console_message_format: str = "%(message)s",
+    file_message_format: str = "%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
+) -> Path | None:
     """Configures file and console logging and prunes old logs for this script."""
     if max_log_files is not None and max_log_files < 1:
         raise ValueError("max_log_files must be at least 1 or None.")
+    if max_log_age is not None and max_log_age < timedelta(0):
+        raise ValueError("max_log_age must be non-negative or None.")
 
     for handler in logger.handlers[:]:
         handler.close()
@@ -55,15 +67,28 @@ def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.
         logger.addHandler(file_handler)
 
         # Prune old logs specific to this script
-        if max_log_files is not None:
+        if max_log_files is not None or max_log_age is not None:
             script_logs = sorted(p for p in log_dir.glob("*.log") if p.stem.partition("_")[2] == script_stem)
 
-            while len(script_logs) > max_log_files:
-                oldest = script_logs.pop(0)
-                try:
-                    oldest.unlink()
-                except OSError:
-                    logger.warning("Failed to remove old log file: %s", oldest)
+            if max_log_age is not None:
+                expiration_time = datetime.now().timestamp() - max_log_age.total_seconds()
+                for old_log in script_logs[:]:
+                    if old_log == log_path:
+                        continue
+                    try:
+                        if old_log.stat().st_mtime < expiration_time:
+                            old_log.unlink()
+                            script_logs.remove(old_log)
+                    except OSError:
+                        logger.warning("Failed to remove old log file: %s", old_log)
+
+            if max_log_files is not None:
+                while len(script_logs) > max_log_files:
+                    oldest = script_logs.pop(0)
+                    try:
+                        oldest.unlink()
+                    except OSError:
+                        logger.warning("Failed to remove old log file: %s", oldest)
 
     return log_path
 
@@ -71,8 +96,7 @@ def setup_logging(log_folder: Path = Path("Logs"), console_level: int = logging.
 if __name__ == "__main__":
     exit_code = 0
     try:
-        setup_logging(max_log_files=5)
-        # setup_logging(log_folder=Path(f"~/AppData/Local/Temp/{Path(__file__).stem}"), max_log_files=5) # C:\Users\YourName\AppData\Local\Temp\{script_name}
+        setup_logging(log_folder=Path(f"~/AppData/Local/Temp/{Path(__file__).stem}"), max_log_files=10)  # C:\Users\YourName\AppData\Local\Temp\{script_name}
         main()
 
     except KeyboardInterrupt:
