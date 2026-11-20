@@ -96,7 +96,7 @@ def setup_logging(
 if __name__ == "__main__":
     exit_code = 0
     try:
-        setup_logging(log_folder=Path(f"~/AppData/Local/Temp/{Path(__file__).stem}"), max_log_files=10)  # C:\Users\YourName\AppData\Local\Temp\{script_name}
+        setup_logging(max_log_files=10)  # Use `log_folder=Path(f"~/AppData/Local/Temp/{Path(__file__).stem}")` to get something like C:\Users\YourName\AppData\Local\Temp\{script_file_name}
         main()
 
     except KeyboardInterrupt:
